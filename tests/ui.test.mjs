@@ -96,6 +96,8 @@ test('UI: email code login unlocks the workspace; logout removes private state a
  await h.click('sign-out');
  assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/<button\b[^>]*disabled/);
+ assert.match(h.nodes['#app'].innerHTML,/Continue with email/);
  assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
 });
 

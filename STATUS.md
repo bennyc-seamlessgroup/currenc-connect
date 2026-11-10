@@ -22,7 +22,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 - Vercel-specific checks cover browser-only output, the API export, secure session isolation, ignored caller-supplied identities, persistent adapter state, concurrent claims, origin checks, and explicit missing-database errors. Live verification passed at https://currenc-connect.vercel.app: HTTP 200, cloud persistence, isolated sessions, the full 500-token demo claim flow, concurrent claims settling exactly once, and cross-origin rejection.
 
-- Live Vercel deployment is Ready (deployment `CWtHW7katB1KymCJn9jmZF4NqZkz`, source `419dfe7`). Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
+- Live account-login deployment is Ready (deployment `B2Evf5sWSrur3vEMZ1WnRwDLdnSa`, source `59eebab`). Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
 
 ## Account login update
 
@@ -31,4 +31,6 @@ Updated: 10 November 2026 (Hong Kong).
 - First login can atomically adopt the browser demo; existing account data is never overwritten.
 - Added regression tests for two devices sharing one account, different-account isolation, legacy adoption, session expiry/revocation, forged identities, and the complete login UI flow.
 - Managed provider: Neon Auth on the existing database branch. Application name: Currenc Connect. Trusted canonical and stable branch domains are configured; sign-up verification uses codes.
-- Live login and email delivery verification will be checked after deployment.
+- Live email delivery and first account login were confirmed by Benny and observed in Chrome: the account email and cloud workspace are displayed. An independent browser remains signed out until its own verification.
+- Live API checks return 401 without a verified account, 403 for cross-origin sign-out, and 400 for an invalid code. A forged caller identity and the previous anonymous cookie cannot unlock a workspace.
+- Login layout was checked at 390 × 844 with no horizontal overflow. Regression coverage also confirms that sign-out clears private dialogs and leaves the login button ready for a new sign-in. Session responses explicitly disable caching.

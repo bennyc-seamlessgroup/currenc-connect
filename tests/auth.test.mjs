@@ -52,6 +52,9 @@ test('every workspace session is revalidated with the provider; logout revokes i
   assert.equal((await h.authenticate(signed)).user,null);
   const anonymous=await h.authenticate(request('session',undefined,{Cookie:`${cacheName}=forged`}));
   assert.equal(anonymous.user,null);
+  const signedOutResponse=await h.handle(request('session'));
+  assert.equal(signedOutResponse.headers.get('Cache-Control'),'no-store');
+  assert.deepEqual(await signedOutResponse.json(),{user:null});
 });
 test('invalid provider sessions and provider failures never create anonymous workspace access',async()=>{
   const req=request('session',undefined,{Cookie:`${tokenName}=token`});

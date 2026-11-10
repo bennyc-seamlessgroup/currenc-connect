@@ -40,7 +40,7 @@ export function createAuthentication({environment=()=>process.env,proxy=handleAu
   }
   async function authenticate(request) {
     const issuer=baseUrl();
-    if(!parseCookieValue(request.headers.get('Cookie')||'',NEON_AUTH_SESSION_COOKIE_NAME))return {user:null,issuer,headers:new Headers()};
+    if(!parseCookieValue(request.headers.get('Cookie')||'',NEON_AUTH_SESSION_COOKIE_NAME))return {user:null,issuer,headers:new Headers({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})};
     const {response,headers}=await upstream(request,'get-session');
     if(response.status>=500)throw new AuthUnavailableError('Sign-in service unavailable. Try again shortly.');
     if(!response.ok)return {user:null,issuer,headers};

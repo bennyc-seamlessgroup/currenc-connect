@@ -40,7 +40,7 @@ let mode = localStorage.getItem('cc-mode') || 'company';
 let companyId = localStorage.getItem('cc-company') || 'curr';
 if(!COMPANIES.some(c=>c.id===companyId)) companyId='curr';
 let navOpen = false;
-let page = 'overview'; let filter = 'all'; let search = ''; let busy = false; let error = ''; let signIn = false;
+let page = 'overview'; let filter = 'all'; let search = ''; let busy = false; let error = '';
 const company = () => COMPANIES.find(c=>c.id===companyId);
 const campaigns = () => state.campaigns.filter(c=>c.company===companyId);
 const holders = () => state.holders.filter(h=>campaigns().some(c=>c.id===h.campaign));
@@ -80,8 +80,8 @@ async function verifyCode(code) {
 }
 async function signOut() {
  if(authWorking)return;authWorking=true;
- try {await authRequest('sign-out',{});lockWorkspace();authStep='email';authEmail='';authError='';page='overview';search='';filter='all';navOpen=false;closeModal();render();}
- catch(e){toast(e.message,true);}finally{authWorking=false;}
+ try {await authRequest('sign-out',{});lockWorkspace();authStep='email';authEmail='';authError='';}
+ catch(e){toast(e.message,true);}finally{authWorking=false;render();}
 }
 async function command(cmd, message='Changes saved', close=true) {
  if(busy) return false; busy=true; document.body.classList.add('busy');
@@ -97,7 +97,7 @@ function shell() {
  <div class="sidebar-bottom"><button class="nav-item" data-action="help">${icon('help')}<span>Quick guide</span></button><button class="nav-item ${page==='settings'?'active':''}" data-action="nav" data-page="settings">${icon('settings')}<span>Settings</span></button><div class="sidebar-user"><span class="avatar small">${esc((currentUser?.name||currentUser?.email||'D').slice(0,1).toUpperCase())}</span><strong title="${esc(currentUser?.email||'')}">${esc(currentUser?.name||currentUser?.email||'Local demo')}</strong>${currentUser?`<button class="icon-btn" data-action="sign-out" aria-label="Sign out">${icon('logout')}</button>`:''}</div></div></aside>
  ${navOpen?'<button class="menu-scrim" data-action="menu" aria-label="Close navigation"></button>':''}
  <div class="app-body"><header class="topbar"><div class="topbar-context"><button class="icon-btn mobile-menu" data-action="menu" aria-label="Toggle navigation" aria-expanded="${navOpen}">${icon('menu')}</button><span class="workspace-name">${mode==='company'?company().name:'Shareholder portal'}</span>${mode==='company'?`<select id="mobile-company-select" class="mobile-company-select" aria-label="Select company">${COMPANIES.map(c=>`<option value="${c.id}" ${c.id===companyId?'selected':''}>${c.name}</option>`).join('')}</select>`:''}</div><div class="topbar-right"><span class="sandbox-tag">Sandbox</span><div class="role-toggle" role="group" aria-label="Workspace role"><button data-action="mode" data-mode="company" aria-pressed="${mode==='company'}" class="${mode==='company'?'selected':''}">Company</button><button data-action="mode" data-mode="shareholder" aria-pressed="${mode==='shareholder'}" class="${mode==='shareholder'?'selected':''}">Shareholder</button></div><button class="icon-btn activity-button" data-action="activity" aria-label="Recent activity">${icon('bell')}</button></div></header>
- <main id="main">${!state ? error ? `<div class="panel load-error">${empty('Unable to load workspace',esc(error),'refresh')}${signIn?'<a class="btn primary" href="/signin-with-chatgpt?return_to=/" target="_top">Sign in</a>':btn('Try again','reload','primary')}</div>` : `<div class="loading"><span class="spinner"></span>Loading workspace…</div>` : content()}</main><footer><span>© ${new Date().getFullYear()} Currenc Connect</span><span>Simulated data only</span></footer></div>`;
+ <main id="main">${!state ? error ? `<div class="panel load-error">${empty('Unable to load workspace',esc(error),'refresh')}${btn('Try again','reload','primary')}</div>` : `<div class="loading"><span class="spinner"></span>Loading workspace…</div>` : content()}</main><footer><span>© ${new Date().getFullYear()} Currenc Connect</span><span>Simulated data only</span></footer></div>`;
 }
 function title(heading, actions='') { return `<div class="page-heading"><h1>${heading}</h1><div class="heading-actions">${actions}</div></div>`; }
 function content() {
