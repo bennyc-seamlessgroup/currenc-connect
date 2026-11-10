@@ -140,6 +140,15 @@ test('UI: company owners create a workspace, manage invitations and safely rende
  const org=(await h.platform.read(h.actor)).context.organizationId;
  const pending=(await h.platform.read(h.actor,{view:'company',organizationId:org})).team.invitations[0];
  await h.click('revoke-invitation',{id:pending.id});assert.doesNotMatch(h.nodes['#app'].innerHTML,/Pending invitations/);
+ const today=new Date().toISOString().slice(0,10),deadline=new Date(Date.now()+86400000).toISOString().slice(0,10);
+ await h.platform.execute(h.actor,{type:'create',organizationId:org,input:{company:org,name:'Rewards',description:'Test campaign',mode:'ratio',ratio:0.1,budget:1000,minimum:1,cap:1000,release:100,snapshotDate:today,deadline,distribution:'claim',chains:['ETH']}});
+ const cid=(await h.platform.read(h.actor,{view:'company',organizationId:org})).state.campaigns[0].id;
+ await h.platform.execute(h.actor,{type:'open',organizationId:org,campaignId:cid});
+ await h.click('mode',{mode:'shareholder'});
+ await h.submit('kyc-form',{name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:'on'});
+ await h.click('company-rewards',{company:org});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/<svg onload/);
+ await h.click('join',{id:cid});assert.match(h.nodes['#dialog'].innerHTML,/verify-form/);
+ assert.match(h.nodes['#dialog'].innerHTML,/&lt;svg/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/<svg onload/);
 });
 
 test('UI: viewers have no campaign, review, funding or team controls; operators retain campaign controls',async t=>{
