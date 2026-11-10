@@ -12,6 +12,9 @@ function harness(t) {
 }
 async function company(h,owner,name='Test company') {
   await h.read(owner);const selected=await h.execute(owner,{type:'create-organization',name,ticker:'TEST',token:'TST'});
+  // These existing tests focus on membership/domain permissions. Company review
+  // transitions are exercised separately through the real governance service.
+  await h.DB.query("UPDATE cc_company_status SET status='approved',visible=1,was_approved=1 WHERE organization_id=$1",[selected.organizationId]);
   return selected.organizationId;
 }
 async function campaign(h,owner,id) {

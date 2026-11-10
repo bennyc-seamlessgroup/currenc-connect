@@ -5,6 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
 import entry from '../api/workspace.js';
 import authEntry from '../api/auth.js';
+import documentEntry from '../api/company-document.js';
 import {seedState} from '../lib/domain.ts';
 import {accountWorkspaceId,legacyWorkspaceId,createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
 import {createNeonDatabase} from '../server/neon-database.mjs';
@@ -41,6 +42,7 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(config.buildCommand,'npm run build');
   assert.equal(JSON.parse(readFileSync('package.json','utf8')).engines.node,'22.x');
   assert.equal(typeof entry.fetch,'function');assert.equal(typeof authEntry.fetch,'function');
+  assert.equal(typeof documentEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
   assert.deepEqual(files,['app.js','favicon.svg','index.html','styles.css']);
   for(const [path,file]of [['/','index.html'],['/app.js','app.js'],['/styles.css','styles.css']]) {
@@ -109,6 +111,7 @@ test('authenticated concurrent claims across devices settle exactly once',async(
   await DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind(accountWorkspaceId(issuer,userA.id),JSON.stringify(seedState())).run();
   const first=await (await handle(request(cookieA))).json();
   const organizationId=first.access.organizations.find(o=>o.ticker==='CURR').id;
+  await DB.query("UPDATE cc_company_status SET status='approved',visible=1,was_approved=1 WHERE organization_id=$1",[organizationId]);
   const initial=await (await handle(new Request(origin+'/api/workspace?view=company&organization='+organizationId,{headers:{Cookie:cookieA}}))).json();
   const campaignId=initial.state.campaigns.find(c=>c.legacyId==='curr-welcome').id;
   const holderId=initial.state.holders.find(h=>h.legacyId==='sample-iris').id;

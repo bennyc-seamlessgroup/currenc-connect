@@ -25,7 +25,7 @@ Stop with Ctrl+C. Source changes require restarting the server to rebuild the ap
 
 ## Company and shareholder access
 
-New hosted accounts choose **Continue as a shareholder** or **Create a company**. Creating a company grants ownership of that new workspace only. Company names and tickers do not grant access to an existing company. A new company starts with no campaigns, shareholders or test funds.
+New hosted accounts choose **Continue as a shareholder** or **Register a company**. Creating a company grants ownership of that new private workspace only. Company names and tickers do not grant access to an existing company. A new company starts with no campaigns, shareholders or test funds, and must pass platform review before publishing or accepting registrations. Owners and operators can prepare campaign drafts while the company application is incomplete.
 
 | Role | Company access |
 | --- | --- |
@@ -40,6 +40,26 @@ The company owner cannot be removed or demoted. Members cannot change their own 
 Open **Company → Team → Invite member**, enter an email and role, then use **Copy link**. Share this link yourself: **the app does not send an invitation email**. The recipient signs in with the invited email and accepts the invitation under **Invitations**. Links expire after seven days and can be revoked. A link alone never grants access. Accepted invitations cannot be replayed after membership removal. Role changes and removals apply on the next protected request; the UI clears inaccessible company data and returns to the shareholder portal.
 
 Only published campaign settings appear in the shareholder directory. Company treasury, review queues, team details and other investors' records are excluded from shareholder responses. All write permissions are enforced server-side; changing a browser view or supplying another account/holder ID does not grant permission.
+
+## Platform console and company registration
+
+Platform administrators are separate from company owners/admins. The **Platform console** provides the review queue, company listings, account access, portal settings and an audit log. Platform review access includes private company application evidence, not automatic membership or access to company shareholder ledgers.
+
+Company owners/admins complete **Company application** with legal name, registration number, jurisdiction, HTTPS website, contact details, representative role and authorization confirmation. Upload both **Company registration** and **Representative authority** evidence, then submit for review. Drafts can be saved. Submitted/approved evidence is locked; requesting information or rejecting an application allows correction and resubmission. Each submission snapshots the application and evidence metadata. Reviews use revisions to prevent approving stale or concurrently changed information.
+
+Evidence accepts PDF, PNG and JPEG up to **2 MB per file**. It is stored privately in the existing database, separately from business JSON, with a content hash and immutable versions. Up to 20 versions per company are retained. Replacing a file archives its earlier version, which remains available to authorized reviewers through submission history. Downloads use authenticated `/api/company-document` requests, attachment headers and `no-store`; there are no public file URLs. Owners/admins of the relevant company and platform administrators can read evidence. Company operators/viewers and unrelated accounts cannot.
+
+Review actions include approve, request information, reject, suspend/restore and list/hide. Only approved, listed companies with published, visible campaigns appear in the directory. Hiding removes new public registrations but retains existing shareholders' records. Company suspension and platform campaign pauses prevent simulated payouts and operational writes without removing allocations or transactions. Restoring a company that was never approved returns it to application review, not public access. Portal settings can pause new company submissions, pause new shareholder campaign registrations, and display a plain-text notice.
+
+Accounts can be suspended/restored at the application level. Suspension blocks protected API and evidence access on the next request; it does not delete data or delete the Neon identity. Platform administrators are protected from account suspension until their platform role is removed. Only the platform owner can appoint/remove platform admins, and the platform owner cannot be demoted or suspended through the app. Platform admins can appoint registered company administrators or adjust non-owner company member roles, with audit records. Company ownership remains unchanged.
+
+### Initialize the platform owner
+
+Set **`PLATFORM_BOOTSTRAP_OWNER_EMAIL`** in the Vercel project's **Production** environment to the intended operator's verified login email, then redeploy. Keep this deployment-controlled value server-side; do not commit a real operator email or add a client-exposed prefix. The trusted issuer is the configured Neon Auth service. The first matching verified account is bound as the sole platform owner **by its authenticated account ID**. There is no first-user, company-owner, request-header or self-service route to platform privileges. Later changes to the bootstrap email do not transfer ownership. Other platform admins are delegated by the initialized owner through Accounts.
+
+Localhost explicitly bootstraps its loopback-only developer identity for review. This is development configuration, never a production fallback.
+
+Existing sample workspaces remain intact but begin hidden with a draft application. A platform reviewer may explicitly use **Approve sample workspace** for deterministically identified legacy samples, with a reason. This allows sandbox publishing without claiming legal company or representative verification. New companies must follow the normal evidence/submission flow; they cannot request the sample exemption.
 
 ## Existing demo flow
 
@@ -79,10 +99,14 @@ The optional offline export is `outputs/Currenc_Connect_Offline.html`. Normal de
 | `api/auth.js` | Email code sign-in, session check and sign-out |
 | `server/` | Cloud database and sandbox session adapters |
 | `server/platform.mjs` | Company memberships, invitations, tenant boundaries and shareholder projections |
+| `server/governance.mjs` | Platform access, company applications, moderation, account controls and audit |
+| `server/company-documents.mjs` | Bounded private evidence upload/download and version retention |
+| `src/governance-ui.js` | Company application and platform console views, bundled with app.js |
 | `server/sqlite-database.mjs` | SQLite transactions for loopback development and isolated tests |
 | `vercel.json` | Vercel output and response headers |
 | `drizzle/0000_workspace.sql` | Initial database schema |
 | `drizzle/0001_platform.sql` | Accounts, organizations, memberships, invitations and team audit |
+| `drizzle/0002_governance.sql` | Company review, private evidence, platform admins, portal and account controls |
 | `tests/` | Domain, API, UI and localhost regression tests |
 
 Known sample Chinese labels from earlier local data are displayed in English without resetting the database. User-authored campaign names and other content are retained.
@@ -109,10 +133,10 @@ The original Sites Worker demo is retained at `dist/server/index.js`, with its e
 
 ## Sandbox scope
 
-All KYC, holdings, wallet verification and distributions are simulated. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter real identity documents, broker credentials, wallet private keys or seed phrases.
+KYC, holdings, wallet verification and distributions are simulated. Login, company applications, evidence storage and access controls are real application features; platform approval is a manual publishing decision and does not independently verify legal company representation. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter shareholder identity documents, broker credentials, wallet private keys or seed phrases.
 
 CURRENC Group / CURR is a real-brand demo; Northstar Labs / NRTH and Harbor Energy / HBR are fictional. All campaign and shareholder data is sample data.
 
 One allocation is shared across receiving networks. Each network has its own test balance; there is no cross-chain bridge. Wallet changes are blocked after a claim. Allocations round down to 6 decimals; caps and rounding remainders are not redistributed. Unlock percentages are raised manually. Form dates use UTC; activity times use Hong Kong time.
 
-Not implemented: real KYC or broker integration, company representation verification, historical holdings evidence, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.
+Not implemented: third-party KYC, broker or company representation verification, historical holdings evidence, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.

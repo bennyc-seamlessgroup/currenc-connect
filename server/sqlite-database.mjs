@@ -6,12 +6,18 @@ export function createSqliteDatabase(path) {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(readFileSync(new URL('../drizzle/0000_workspace.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../drizzle/0001_platform.sql',import.meta.url),'utf8'));
+  db.exec(readFileSync(new URL('../drizzle/0002_governance.sql',import.meta.url),'utf8'));
   const execute=(sql,values=[])=>{
     const args=[];
     const statement=db.prepare(sql.replace(/\$(\d+)/g,(_,index)=>{args.push(values[Number(index)-1]);return '?';}));
     return statement.all(...args);
   };
   return {db,close:()=>db.close(),query:async(sql,values=[])=>execute(sql,values),
+    async atomicChange(change,effects=[]){
+      db.exec('BEGIN IMMEDIATE');
+      try{const rows=execute(change.sql,change.values);if(rows.length)for(const effect of effects)execute(effect.sql.replaceAll('EXISTS (SELECT 1 FROM changed)','1=1'),effect.values);db.exec('COMMIT');return rows;}
+      catch(error){db.exec('ROLLBACK');throw error;}
+    },
     async mutateWithAudit(change,audit){
       db.exec('BEGIN IMMEDIATE');
       try{const rows=execute(change.sql,change.values);if(rows.length)execute(audit.sql,audit.values);db.exec('COMMIT');return rows;}

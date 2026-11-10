@@ -12,7 +12,11 @@ const statements = new Map([
 ]);
 const databases = new Map();
 export function createNeonDatabase(query,transaction) {
-  return {query,transaction,async mutateWithAudit(change,audit) {
+  return {query,transaction,async atomicChange(change,effects=[]) {
+    const values=[...change.values];
+    const ctes=effects.map((effect,index)=>{const offset=values.length;values.push(...effect.values);return `effect_${index} AS (${effect.sql.replace(/\$(\d+)/g,(_,n)=>'$'+(Number(n)+offset))})`;});
+    return query(`WITH changed AS (${change.sql})${ctes.length?', '+ctes.join(', '):''} SELECT * FROM changed`,values);
+  },async mutateWithAudit(change,audit) {
     const offset=change.values.length;
     const parameters=audit.values.map((_,index)=>'$'+(offset+index+1)).join(',');
     return query(`WITH changed AS (${change.sql}), audited AS (INSERT INTO cc_team_audit (id,organization_id,actor_id,action,detail,created_at) SELECT ${parameters} FROM changed RETURNING id) SELECT * FROM changed`,[...change.values,...audit.values]);
@@ -41,7 +45,8 @@ export async function getCloudDatabase(connectionString) {
     const ready = (async()=>{
       const sql = neon(connectionString);
       const schema=await readFile(new URL('../drizzle/0001_platform.sql',import.meta.url),'utf8');
-      const migrations=['SELECT pg_advisory_xact_lock(71540320261110)','CREATE TABLE IF NOT EXISTS currenc_connect_workspaces (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)',...schema.split(';').map(s=>s.trim()).filter(Boolean)];
+      const governance=await readFile(new URL('../drizzle/0002_governance.sql',import.meta.url),'utf8');
+      const migrations=['SELECT pg_advisory_xact_lock(71540320261110)','CREATE TABLE IF NOT EXISTS currenc_connect_workspaces (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)',...(schema+';'+governance).split(';').map(s=>s.trim()).filter(Boolean)];
       await sql.transaction(migrations.map(s=>sql.query(s,[])));
       return createNeonDatabase((statement,values=[])=>sql.query(statement,values),statements=>sql.transaction(statements.map(({sql:statement,values=[]})=>sql.query(statement,values))));
     })();

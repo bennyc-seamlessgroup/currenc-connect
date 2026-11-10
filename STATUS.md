@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 43 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display, account login, team roles, invitations, tenant isolation, forged API identities and role-aware UI behavior.
+- 57 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -52,3 +52,16 @@ Updated: 10 November 2026 (Hong Kong).
 - Live APIs still reject signed-out and forged identities with 401, cross-origin writes with 403, and use `Cache-Control: no-store`.
 - Company names are escaped throughout navigation, the public directory, reward dialogs and holdings registration. The UI regression test follows a company name containing HTML through publication and shareholder registration to prevent markup injection.
 - Business state remains revision-protected JSON per company. Company representation verification, enterprise SSO, dual approval, automatic invitation email, KYC/broker providers and on-chain transfers remain future work.
+
+## Platform administration and company registration
+
+- Added a separate Platform console: review queue, company applications/listings, account access, company administrator appointment, portal settings, campaign moderation and audit log.
+- New companies save private application drafts and registration/representative evidence, then submit for review. Unapproved companies may prepare campaign drafts but cannot publish, accept registrations or perform operational payouts. Request-information/rejection enables correction and a new immutable submission snapshot.
+- Evidence is private database storage (PDF/PNG/JPEG, 2 MB each, 20 retained versions per company), with authenticated attachment downloads. Only relevant company owners/admins and platform admins can access it. Company viewers/operators and unrelated accounts are denied. File bytes do not appear in workspace or audit JSON.
+- Explicit reviewed revisions prevent stale approvals. Company suspension and campaign moderation invalidate business revisions and enforce gates on the server; previous allocations, transactions and balances remain intact. Restoring an unapproved company returns to information-requested status without granting publishing rights.
+- Application-level account suspension blocks protected workspace/document access and clears private UI state. Platform owners/admins have separate access and cannot obtain company ownership through client-selected fields.
+- The initial platform owner is bootstrapped only from deployment configuration `PLATFORM_BOOTSTRAP_OWNER_EMAIL`, matched to a verified Neon issuer and then permanently bound by provider-derived account ID. No production owner is automatically selected from a company owner or the first signup. Localhost uses an explicit loopback developer bootstrap.
+- Existing companies are retained as hidden draft applications until reviewed. Only deterministically migrated sample workspaces can be explicitly approved for sandbox publishing without registration evidence; this does not assert legal/company verification.
+- Isolated localhost HTTP/browser verification passed for two synthetic evidence uploads, authenticated byte-for-byte downloads, pending application display, pre-approval publication rejection, and the reviewer confirmation/audit flow. This uses `/private/tmp/currenc-governance-qa.sqlite`; the user's `.local` business data was not used for these review mutations.
+- The platform console was checked at desktop and 390 × 844 phone widths without page-level horizontal overflow. Wide review tables scroll inside their panels. Applicant/reviewer text is English, and structured audit details are presented as readable summaries.
+- Production deployment and the designated platform-owner setup are pending final verification for this update.

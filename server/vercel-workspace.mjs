@@ -2,10 +2,13 @@ import {createHash} from 'node:crypto';
 import {createPlatform,PlatformError} from './platform.mjs';
 import {getCloudDatabase} from './neon-database.mjs';
 import {authenticateAccount,AuthUnavailableError,publicUser,sameOrigin} from './auth.mjs';
+import {DEFAULT_AUTH_BASE_URL} from './auth-config.mjs';
+import {createDocumentHandler} from './company-documents.mjs';
 
 const legacyCookieName='__Host-cc-session';
 const json=(data,status)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const runtime={environment:'Vercel sandbox',storage:'Cloud database',identity:'Company memberships & personal shareholder account'};
+export const governanceOptions=env=>({bootstrapOwner:env.PLATFORM_BOOTSTRAP_OWNER_EMAIL?{email:env.PLATFORM_BOOTSTRAP_OWNER_EMAIL,issuer:(env.NEON_AUTH_BASE_URL||DEFAULT_AUTH_BASE_URL).replace(/\/$/,'')}:undefined});
 export const accountWorkspaceId=(issuer,id)=>'account:'+createHash('sha256').update(issuer+'\0'+id).digest('hex');
 export function legacyWorkspaceId(cookieHeader='') {
   const cookies=cookieHeader.split(';').map(part=>part.trim()).filter(part=>part.startsWith(legacyCookieName+'='));
@@ -33,9 +36,9 @@ export function createVercelWorkspaceHandler({database=getCloudDatabase,environm
         const initialized=await DB.query('SELECT id FROM cc_accounts WHERE id=$1',[id]);
         if(!initialized.length&&await DB.adoptWorkspace(legacyId,id))outputHeaders.append('Set-Cookie',`${legacyCookieName}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
       }
-      const platform=createPlatform(DB);
+      const platform=createPlatform(DB,governanceOptions(environment()));
       const actor={...identity,accountId:id};
-      let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined};
+      let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search')};
       if(request.method==='POST') {
         let command;
         try {const text=await request.text();if(Buffer.byteLength(text)>12000)return json({error:'Request too large'},413);command=JSON.parse(text);}
@@ -46,10 +49,24 @@ export function createVercelWorkspaceHandler({database=getCloudDatabase,environm
       outputHeaders.set('Cache-Control','no-store');outputHeaders.set('X-Content-Type-Options','nosniff');
       return Response.json({...data,runtime,user:publicUser(identity.user)},{headers:outputHeaders});
     }catch(error) {
-      if(error instanceof PlatformError)return json({error:error.message},error.status);
+      if(error instanceof PlatformError)return json({error:error.message,...(error.code?{code:error.code}:{})},error.status);
       if(error instanceof AuthUnavailableError)return json({error:error.message},503);
       console.error('Account workspace request failed');
       return json({error:'Workspace unavailable. Please try again shortly.'},503);
     }
+  };
+}
+export function createVercelDocumentHandler({database=getCloudDatabase,environment=()=>process.env,authenticate=authenticateAccount}={}){
+  return async request=>{
+    try{
+      if(request.method==='POST'&&!sameOrigin(request))return json({error:'Cross-origin requests are not allowed.'},403);
+      const auth=await authenticate(request);
+      if(!auth.user)return json({error:'Sign in to access company documents.',signIn:true},401);
+      if(auth.user.emailVerified!==true)return json({error:'Verify your email first.',signIn:true},403);
+      const connection=environment().DATABASE_URL||environment().POSTGRES_URL;
+      if(!connection)return json({error:'Cloud workspace is not configured.'},503);
+      const handler=createDocumentHandler({identity:async()=>({...auth,accountId:accountWorkspaceId(auth.issuer,auth.user.id)}),database:()=>database(connection),platformOptions:governanceOptions(environment())});
+      const response=await handler(request);for(const cookie of auth.headers.getSetCookie())response.headers.append('Set-Cookie',cookie);return response;
+    }catch(error){if(error instanceof PlatformError)return json({error:error.message,...(error.code?{code:error.code}:{})},error.status);return json({error:'Company document unavailable. Please try again shortly.'},503);}
   };
 }
