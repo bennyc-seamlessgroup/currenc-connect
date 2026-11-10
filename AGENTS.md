@@ -10,6 +10,7 @@
 - 公司 Owner/Admin 與 Platform Owner/Admin 分開；公司成員不能更改平台保存的公司登記資訊。`companyApplication` 不再回傳予公司模式。舊文件／申請紀錄保留，內部文件只供平台人員讀寫，不再准許普通公司 Owner/Admin 存取；不要公開檔案或把內容放入工作空間 JSON／localStorage／稽核。
 - 平台首位主管理員已經由使用者確認並初始化。`PLATFORM_BOOTSTRAP_OWNER_EMAIL` 及驗證 Neon issuer 只初始化一次，固定綁定 account ID；不可從公司 Owner、第一位用戶或客戶端欄位取得平台權限。真實管理員電郵不寫入 Git。localhost 的明確 local-development 例外不可公開部署。
 - 平台保留帳戶／公司／活動控制、股東登記開關、公告及稽核紀錄。不得重設既有配額、發放、餘額、成員、原 JSON archive、舊文件或歷史申請。登入與權限真實，KYC／持股／錢包與發放仍為 Sandbox。
+- 團隊版本已通過 57 項測試及線上 Postgres 新增／編輯／重載／停用／稽核實測；普通成員 Settings 已無登記入口。獨立測試庫 `/private/tmp/currenc-staff-company-qa.sqlite`，390px 無橫向溢出；QA 程式已停止，主 localhost:5173 保留運行。
 
 - 公司與股東權限已改用 `server/platform.mjs`：Owner／Admin／Operator／Viewer，股東只見自己的身份、登記、錢包與獎勵。公司角色必須由建立公司或接受電郵綁定邀請取得；前端切換不能授予權限。
 - `drizzle/0001_platform.sql` 是新增的帳戶、公司、成員、邀請與團隊稽核資料表；Neon 與 localhost SQLite 使用相同平台規則。業務狀態仍以每公司 JSON + revision 保存，並非已完成所有正式產品的資料模型。
