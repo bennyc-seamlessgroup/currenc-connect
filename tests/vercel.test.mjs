@@ -142,6 +142,22 @@ test('Vercel reports missing database configuration for a signed-in user',async(
   assert.equal((await response.json()).code,'DATABASE_NOT_CONFIGURED');
 });
 
+test('Vercel binds company authorization to the provider account, ignoring forged account and role fields',async()=>{
+  const {handle}=harness();
+  const created=await handle(request(cookieA,{type:'create-organization',name:'Private company',ticker:'PRIV',token:'TEST'}));
+  assert.equal(created.status,200);
+  const org=(await created.json()).context.organizationId;
+  const forgedHeaders={Cookie:cookieB,'oai-authenticated-user-id':accountWorkspaceId(issuer,userA.id),'oai-authenticated-user-email':userA.email};
+  const read=await handle(new Request(origin+'/api/workspace?view=company&organization='+org,{headers:forgedHeaders}));
+  assert.equal(read.status,403);assert.equal((await read.json()).state,undefined);
+  const write=await handle(request(cookieB,{type:'fund',organizationId:org,company:org,chain:'ETH',amount:1000,accountId:accountWorkspaceId(issuer,userA.id),role:'owner'},forgedHeaders));
+  assert.equal(write.status,403);
+  const invitation=await handle(request(cookieB,{type:'invite-member',organizationId:org,email:userB.email,role:'admin',user:userA},forgedHeaders));
+  assert.equal(invitation.status,403);
+  const unchanged=await handle(new Request(origin+'/api/workspace?view=company&organization='+org,{headers:{Cookie:cookieA2}}));
+  assert.equal((await unchanged.json()).state.treasury[org].ETH,0);
+});
+
 test('Neon adapter parameterizes data and uses revision-conditional updates',async()=>{
   const calls=[];
   const DB=createNeonDatabase(async(sql,values)=>{calls.push({sql,values});return sql.startsWith('SELECT')?[{data:'{}',revision:7}]:[{revision:8}];});

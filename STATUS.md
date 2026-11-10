@@ -10,19 +10,19 @@ Updated: 10 November 2026 (Hong Kong).
 - The launcher automatically selects a compatible nvm Node runtime when the default Node is too old.
 - Default builds no longer generate the offline HTML. `npm run build:offline` remains available as an optional export.
 - GitHub origin is configured: https://github.com/bennyc-seamlessgroup/currenc-connect.git. This repository is the target for the versioned source baseline. Local SQLite data, generated output and environment files are excluded from Git.
-- Vercel deployment support is implemented: `dist/client` browser assets, native `/api/workspace`, Node 22.x, and a Neon cloud database adapter. The original failed deployment reported `STATIC_BUILD_NO_OUT_DIR` because Vercel expected `public`. A Neon database connection is required for the hosted API. Hosted account access uses managed Neon Auth with email codes and verified email ownership. Workspaces are keyed by the verified provider user ID, so independent devices share the same account data. Localhost keeps its explicit development identity.
+- Vercel deployment support is implemented: `dist/client` browser assets, native `/api/workspace`, Node 22.x, and a Neon cloud database adapter. Hosted account access uses managed Neon Auth with email codes and verified email ownership. Personal records are keyed by the verified provider user ID; company access requires a database membership. Independent devices share the same personal records and permitted company data. Localhost keeps its explicit development identity.
 - Original Sites project identity is retained. Sites Git read access was verified in the preceding access check; the Site remains unpublished.
 - Sandbox only: real identity checks, broker APIs, wallet signatures and on-chain transactions remain unimplemented.
 
 ## Verification
 
-- 42 automated tests cover the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display, account login, team roles, invitations, tenant isolation and role-aware UI behavior.
+- 43 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display, account login, team roles, invitations, tenant isolation, forged API identities and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
 - Vercel-specific checks cover browser-only output, the API export, secure session isolation, ignored caller-supplied identities, persistent adapter state, concurrent claims, origin checks, and explicit missing-database errors. Live verification passed at https://currenc-connect.vercel.app: HTTP 200, cloud persistence, isolated sessions, the full 500-token demo claim flow, concurrent claims settling exactly once, and cross-origin rejection.
 
-- Live account-login deployment is Ready (latest code deployment `CsiqomRRJPpbMAHKu1QrNeb11Erx`, source `dba2281`). Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
+- The account-login baseline (`dba2281`) and company permissions rollout (`c3083bf`, deployment `5dGU2bGXPdThe5B29dMqAqVnqcWi`) are Ready. Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
 
 ## Account login update
 
@@ -45,5 +45,9 @@ Updated: 10 November 2026 (Hong Kong).
 - Owners alone appoint/manage admins; admins can manage operators/viewers. Owners cannot be removed/demoted and members cannot modify their own role. Removed members lose company access on their next request, and the UI clears company state/dialogs.
 - Legacy account workspaces migrate atomically into separate owned companies. The original JSON remains as an archive; balances, revisions, allocations and transactions are preserved. Old events without company IDs are kept in the original owner's personal activity so newly invited members cannot see other companies' history.
 - Localhost runs the same platform service with one explicit local developer identity. Existing `.local/workspace.sqlite` is retained.
-- Local desktop browser checks passed for company navigation, Team and invitation forms. Live deployment verification is pending for this update.
+- Local desktop and 390 × 844 browser checks passed for company navigation, Team and invitation forms, with no horizontal overflow.
+- Live verification passed at https://currenc-connect.vercel.app. Benny's three legacy companies, existing shareholders/campaigns and CURRENC's 25,001 uCURR Ethereum test balance were retained. The original account is Owner of its migrated companies.
+- Benny created a Viewer invitation to a second controlled email, signed in independently and accepted it. The second account displayed the same CURRENC balance and campaign data with no campaign creation, review, team management or funding controls. Its personal My rewards list was empty and did not contain sample investors' records.
+- Saving the existing Viewer role through the owner UI succeeded, preserving Viewer access and writing the team audit event in the same Postgres operation. Invite creation and acceptance also appeared in the team audit. The test Viewer membership is retained; no additional test funding was added in this update.
+- Live APIs still reject signed-out and forged identities with 401, cross-origin writes with 403, and use `Cache-Control: no-store`.
 - Business state remains revision-protected JSON per company. Company representation verification, enterprise SSO, dual approval, automatic invitation email, KYC/broker providers and on-chain transfers remain future work.
