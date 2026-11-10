@@ -11,6 +11,7 @@
 - 舊公司保留資料，但預設為未公開的 draft application。只有以 owner ID 和歷史 company ID 確認的匯入示範公司可由平台明確批准為 sandbox；不得將此批准誤稱為真實公司／代表已核實。
 - 平台可停用帳戶、暫停公司／活動、隱藏公開活動及控制新申請／股東登記。不得清除既有配額、發放、餘額或原 JSON archive。從未獲批的公司恢復後須重新申請，不能直接變成 approved。
 - 本輪目前 57 項測試通過；另外有獨立 localhost:5174 + `/private/tmp/currenc-governance-qa.sqlite` 作合成公司／文件流程驗收。不要將這個暫存測試資料庫當成使用者主資料庫。
+- 平台管理已部署並完成 Production 合成申請／兩類 PDF 上載／提交鎖定／審批及隱藏實測；指定並經使用者確認的帳戶已初始化為唯一 Platform Owner。私密下載內容核對一致，另一個普通帳戶無法讀取平台或公司文件。合成測試公司保留為 hidden，沒有活動／資金；舊三間示範公司仍是 hidden draft，須由平台明確審批。localhost:5174 驗收程式已停止，主 localhost:5173 留待檢視。
 
 - 公司與股東權限已改用 `server/platform.mjs`：Owner／Admin／Operator／Viewer，股東只見自己的身份、登記、錢包與獎勵。公司角色必須由建立公司或接受電郵綁定邀請取得；前端切換不能授予權限。
 - `drizzle/0001_platform.sql` 是新增的帳戶、公司、成員、邀請與團隊稽核資料表；Neon 與 localhost SQLite 使用相同平台規則。業務狀態仍以每公司 JSON + revision 保存，並非已完成所有正式產品的資料模型。
