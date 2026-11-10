@@ -1,46 +1,49 @@
-import {randomBytes, createHash} from 'node:crypto';
+import {createHash} from 'node:crypto';
 import worker from '../dist/server/index.js';
 import {getCloudDatabase} from './neon-database.mjs';
+import {authenticateAccount,AuthUnavailableError,publicUser,sameOrigin} from './auth.mjs';
 
-const cookieName = '__Host-cc-session';
-const json = (data,status) => Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
-const runtime = {environment:'Vercel sandbox',storage:'Cloud database',identity:'Browser session · no account login'};
-
-export function createVercelWorkspaceHandler({database=getCloudDatabase, environment=()=>process.env}={}) {
+const legacyCookieName='__Host-cc-session';
+const json=(data,status)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+const runtime={environment:'Vercel sandbox',storage:'Cloud database',identity:'Account workspace'};
+export const accountWorkspaceId=(issuer,id)=>'account:'+createHash('sha256').update(issuer+'\0'+id).digest('hex');
+export function legacyWorkspaceId(cookieHeader='') {
+  const cookies=cookieHeader.split(';').map(part=>part.trim()).filter(part=>part.startsWith(legacyCookieName+'='));
+  const token=cookies.length===1?cookies[0].slice(legacyCookieName.length+1):'';
+  return /^[A-Za-z0-9_-]{43}$/.test(token)?'session:'+createHash('sha256').update(token).digest('hex'):null;
+}
+export function createVercelWorkspaceHandler({database=getCloudDatabase,environment=()=>process.env,authenticate=authenticateAccount}={}) {
   return async function handle(request) {
-    const url = new URL(request.url);
-    if (!['GET','POST'].includes(request.method)) return json({error:'Method not allowed'},405);
-    if (request.method==='POST' && (request.headers.get('Origin')!==url.origin || request.headers.get('Sec-Fetch-Site')==='cross-site')) {
-      return json({error:'Cross-origin requests are not allowed.'},403);
-    }
-    const env = environment();
-    const connectionString = env.DATABASE_URL || env.POSTGRES_URL;
-    if (!connectionString) return json({error:'Cloud workspace is not configured. Connect a Neon database to this Vercel project and redeploy.',code:'DATABASE_NOT_CONFIGURED'},503);
-    const cookies = (request.headers.get('Cookie')||'').split(';').map(part=>part.trim()).filter(part=>part.startsWith(cookieName+'='));
-    const value = cookies.length===1?cookies[0].slice(cookieName.length+1):'';
-    const existing = /^[A-Za-z0-9_-]{43}$/.test(value);
-    if (request.method==='POST' && !existing) return json({error:'Refresh the workspace before making changes.'},409);
-    const token = existing?value:randomBytes(32).toString('base64url');
-    const id = 'session:'+createHash('sha256').update(token).digest('hex');
+    const url=new URL(request.url);
+    if(!['GET','POST'].includes(request.method))return json({error:'Method not allowed'},405);
+    if(request.method==='POST'&&!sameOrigin(request))return json({error:'Cross-origin requests are not allowed.'},403);
     try {
-      const DB = await database(connectionString);
-      // Never accept a caller-supplied identity or expose database credentials.
-      const headers = new Headers(request.headers);
+      const identity=await authenticate(request);
+      if(!identity.user)return json({error:'Sign in to access your workspace.',signIn:true},401);
+      if(identity.user.emailVerified!==true)return json({error:'Verify your email to access your workspace.',signIn:true},403);
+      const connectionString=environment().DATABASE_URL||environment().POSTGRES_URL;
+      if(!connectionString)return json({error:'Cloud workspace is not configured.',code:'DATABASE_NOT_CONFIGURED'},503);
+      const DB=await database(connectionString);
+      const id=accountWorkspaceId(identity.issuer,identity.user.id);
+      const outputHeaders=new Headers(identity.headers);
+      const legacyId=legacyWorkspaceId(request.headers.get('Cookie')||'');
+      // Move an owned browser demo only if this account has no saved workspace.
+      // The atomic row move preserves its revision and cannot be claimed twice.
+      if(request.method==='GET'&&legacyId) {
+        if(await DB.adoptWorkspace(legacyId,id))outputHeaders.append('Set-Cookie',`${legacyCookieName}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+      }
+      const headers=new Headers(request.headers);
       headers.delete('oai-authenticated-user-email');
       headers.set('oai-authenticated-user-id',id);
-      const internal = new Request(new URL('/api/workspace',url),{
-        method:request.method,headers,
-        ...(request.method==='POST'?{body:await request.text()}:{}),
-      });
-      const response = await worker.fetch(internal,{DB});
-      const data = await response.json();
-      const outputHeaders = new Headers(response.headers);
-      if (response.ok && !existing) outputHeaders.set('Set-Cookie',`${cookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`);
-      return Response.json({...data,...(response.ok?{runtime}:{})},{status:response.status,headers:outputHeaders});
-    } catch {
-      // Do not log connection strings or customer records on connection errors.
-      console.error('Cloud workspace database connection failed');
-      return json({error:'Cloud database unavailable. Check the database connection and try again.'},503);
+      const internal=new Request(new URL('/api/workspace',url),{method:request.method,headers,...(request.method==='POST'?{body:await request.text()}:{})});
+      const response=await worker.fetch(internal,{DB});
+      const data=await response.json();
+      outputHeaders.set('Cache-Control','no-store');outputHeaders.set('X-Content-Type-Options','nosniff');
+      return Response.json({...data,...(response.ok?{runtime,user:publicUser(identity.user)}:{})},{status:response.status,headers:outputHeaders});
+    }catch(error) {
+      if(error instanceof AuthUnavailableError)return json({error:error.message},503);
+      console.error('Account workspace request failed');
+      return json({error:'Workspace unavailable. Please try again shortly.'},503);
     }
   };
 }

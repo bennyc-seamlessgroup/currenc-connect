@@ -33,6 +33,8 @@ function englishWorkspace(saved) {
   activity:saved.activity.map(a=>({...a,title:activityCopy(a.title),detail:activityCopy(a.detail)}))};
 }
 let state = null;
+let workspaceRequest = 0;
+let currentUser = null; let authRequired = false; let authStep = 'email'; let authEmail = ''; let authError = ''; let authWorking = false; let resendAt = 0;
 let workspaceRuntime = {environment:'Local sandbox',storage:'Local SQLite database',identity:'Shared demo workspace'};
 let mode = localStorage.getItem('cc-mode') || 'company';
 let companyId = localStorage.getItem('cc-company') || 'curr';
@@ -46,18 +48,53 @@ const transactions = () => state.transactions.filter(t=>campaigns().some(c=>c.id
 const btn = (text, action, cls='', data='') => `<button class="btn ${cls}" data-action="${action}" ${data}>${text}</button>`;
 const empty = (title, text, ico='box') => `<div class="empty">${icon(ico)}<h3>${title}</h3>${text?`<p>${text}</p>`:''}</div>`;
 function toast(message, fail=false) { const e = $('#toast'); e.className = `toast show ${fail?'fail':''}`; e.textContent = message; clearTimeout(window.toastTimer); window.toastTimer=setTimeout(()=>e.classList.remove('show'),4500); }
-async function load() { try { const r=await fetch('/api/workspace'); const data=await r.json(); if(!r.ok){signIn=!!data.signIn; throw Error(data.error);} state=englishWorkspace(data.state); if(data.runtime)workspaceRuntime=data.runtime; error=''; }catch(e){error=e.message;} render(); }
+function lockWorkspace() {
+ workspaceRequest++;state=null;currentUser=null;authRequired=true;navOpen=false;page='overview';search='';filter='all';closeModal();$('#dialog').innerHTML='';$('#toast').className='toast';$('#toast').textContent='';
+}
+async function load() {
+ const request=++workspaceRequest;
+ try {
+  const r=await fetch('/api/workspace');const data=await r.json();if(request!==workspaceRequest)return;
+  if(r.status===401||(r.status===403&&data.signIn)){lockWorkspace();error='';render();return;}
+  if(!r.ok)throw Error(data.error);
+  state=englishWorkspace(data.state);currentUser=data.user||null;authRequired=false;if(data.runtime)workspaceRuntime=data.runtime;error='';
+ }catch(e){error=e.message;}render();
+}
+function loginPage() {
+ const codeStep=authStep==='code';
+ return `<main class="auth-page"><div class="auth-wrap"><div class="brand auth-brand">${logo}<span>currenc<span class="brand-sub">CONNECT</span></span></div><section class="auth-card"><h1>${codeStep?'Check your email':'Sign in'}</h1><p class="auth-intro">${codeStep?`Enter the code sent to <strong>${esc(authEmail)}</strong>.`:'Access the same workspace on every device.'}</p><form id="${codeStep?'login-code-form':'login-email-form'}" class="auth-form">${codeStep?field('Verification code','<input id="login-code" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code">'):field('Email address',`<input name="email" type="email" required maxlength="254" autocomplete="email" autocapitalize="off" value="${esc(authEmail)}" placeholder="you@company.com">`)}${authError?`<p class="auth-error" role="alert">${esc(authError)}</p>`:''}<button type="submit" class="btn primary full" ${authWorking?'disabled':''}>${authWorking?'Please wait…':codeStep?'Sign in':'Continue with email'}</button></form>${codeStep?`<div class="auth-links"><button class="text-btn" data-action="auth-back" ${authWorking?'disabled':''}>Use another email</button><button id="resend-code" class="text-btn" data-action="resend-code" ${authWorking||Date.now()<resendAt?'disabled':''}>Resend code</button></div>`:''}</section><p class="auth-footnote">${codeStep?'Codes expire shortly and can only be used once.':'New here? Verifying your email creates your account.'}</p></div></main>`;
+}
+async function authRequest(action,body) {
+ const response=await fetch('/api/auth?action='+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const data=await response.json();if(!response.ok)throw Error(data.error||'Unable to sign in. Please try again.');return data;
+}
+async function sendCode(email) {
+ if(authWorking)return;authWorking=true;authEmail=email.trim().toLowerCase();authError='';render();
+ try {await authRequest('send-code',{email:authEmail});authStep='code';resendAt=Date.now()+60000;setTimeout(()=>{const button=$('#resend-code');if(authRequired&&button)button.disabled=false;},60000);}
+ catch(e){authError=e.message;}finally{authWorking=false;render();}
+}
+async function verifyCode(code) {
+ if(authWorking)return;authWorking=true;authError='';render();
+ try {await authRequest('verify-code',{email:authEmail,code});authStep='email';authEmail='';await load();}
+ catch(e){authError=e.message;}finally{authWorking=false;render();}
+}
+async function signOut() {
+ if(authWorking)return;authWorking=true;
+ try {await authRequest('sign-out',{});lockWorkspace();authStep='email';authEmail='';authError='';page='overview';search='';filter='all';navOpen=false;closeModal();render();}
+ catch(e){toast(e.message,true);}finally{authWorking=false;}
+}
 async function command(cmd, message='Changes saved', close=true) {
  if(busy) return false; busy=true; document.body.classList.add('busy');
- try { const r=await fetch('/api/workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)}); const d=await r.json(); if(!r.ok)throw Error(d.error); state=englishWorkspace(d.state); if(close)closeModal(); render(); if(message)toast(message); return true; } catch(e){toast(e.message,true); return false;} finally{busy=false;document.body.classList.remove('busy');}
+ try { const r=await fetch('/api/workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cmd)}); const d=await r.json(); if(r.status===401||(r.status===403&&d.signIn)){lockWorkspace();render();throw Error('Your session has ended. Please sign in again.');} if(!r.ok)throw Error(d.error); state=englishWorkspace(d.state); if(close)closeModal(); render(); if(message)toast(message); return true; } catch(e){toast(e.message,true); return false;} finally{busy=false;document.body.classList.remove('busy');}
 }
 function shell() {
+ if(authRequired)return loginPage();
  const nav=mode==='company' ? [['overview','grid','Overview'],['campaigns','send','Campaigns'],['shareholders','users','Shareholders'],['treasury','wallet','Treasury'],['reports','chart','Distributions']] : [['overview','globe','Companies'],['rewards','spark','My rewards'],['profile','shield','Identity & wallets']];
  const pending=state?holders().filter(h=>h.status==='pending').length:0;
  return `<aside class="sidebar ${navOpen?'is-open':''}" aria-label="Workspace navigation"><a class="brand" href="#" data-action="home" aria-label="Currenc Connect home">${logo}<span>currenc<span class="brand-sub">CONNECT</span></span></a>
  ${mode==='company'?`<div class="company-select"><span class="company-avatar" style="--company:${company().color}">${company().initials}</span><select aria-label="Select company" id="company-select">${COMPANIES.map(c=>`<option value="${c.id}" ${c.id===companyId?'selected':''}>${c.name}</option>`).join('')}</select>${icon('down')}</div>`:`<div class="investor-card"><span class="avatar">${esc((state?.profile.name || 'D').slice(0,1))}</span><strong>${esc(state?.profile.name||'Demo Investor')}</strong></div>`}
  <nav>${nav.map(([id,ico,label])=>`<button class="nav-item ${page===id?'active':''}" data-action="nav" data-page="${id}" ${page===id?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${id==='shareholders'&&pending?`<b>${pending}</b>`:''}</button>`).join('')}</nav>
- <div class="sidebar-bottom"><button class="nav-item" data-action="help">${icon('help')}<span>Quick guide</span></button><button class="nav-item ${page==='settings'?'active':''}" data-action="nav" data-page="settings">${icon('settings')}<span>Settings</span></button><div class="sidebar-user"><span class="avatar small">B</span><strong>Benny’s workspace</strong></div></div></aside>
+ <div class="sidebar-bottom"><button class="nav-item" data-action="help">${icon('help')}<span>Quick guide</span></button><button class="nav-item ${page==='settings'?'active':''}" data-action="nav" data-page="settings">${icon('settings')}<span>Settings</span></button><div class="sidebar-user"><span class="avatar small">${esc((currentUser?.name||currentUser?.email||'D').slice(0,1).toUpperCase())}</span><strong title="${esc(currentUser?.email||'')}">${esc(currentUser?.name||currentUser?.email||'Local demo')}</strong>${currentUser?`<button class="icon-btn" data-action="sign-out" aria-label="Sign out">${icon('logout')}</button>`:''}</div></div></aside>
  ${navOpen?'<button class="menu-scrim" data-action="menu" aria-label="Close navigation"></button>':''}
  <div class="app-body"><header class="topbar"><div class="topbar-context"><button class="icon-btn mobile-menu" data-action="menu" aria-label="Toggle navigation" aria-expanded="${navOpen}">${icon('menu')}</button><span class="workspace-name">${mode==='company'?company().name:'Shareholder portal'}</span>${mode==='company'?`<select id="mobile-company-select" class="mobile-company-select" aria-label="Select company">${COMPANIES.map(c=>`<option value="${c.id}" ${c.id===companyId?'selected':''}>${c.name}</option>`).join('')}</select>`:''}</div><div class="topbar-right"><span class="sandbox-tag">Sandbox</span><div class="role-toggle" role="group" aria-label="Workspace role"><button data-action="mode" data-mode="company" aria-pressed="${mode==='company'}" class="${mode==='company'?'selected':''}">Company</button><button data-action="mode" data-mode="shareholder" aria-pressed="${mode==='shareholder'}" class="${mode==='shareholder'?'selected':''}">Shareholder</button></div><button class="icon-btn activity-button" data-action="activity" aria-label="Recent activity">${icon('bell')}</button></div></header>
  <main id="main">${!state ? error ? `<div class="panel load-error">${empty('Unable to load workspace',esc(error),'refresh')}${signIn?'<a class="btn primary" href="/signin-with-chatgpt?return_to=/" target="_top">Sign in</a>':btn('Try again','reload','primary')}</div>` : `<div class="loading"><span class="spinner"></span>Loading workspace…</div>` : content()}</main><footer><span>© ${new Date().getFullYear()} Currenc Connect</span><span>Simulated data only</span></footer></div>`;
@@ -129,7 +166,10 @@ function createForm() {
 }
 function csvDownload(name, header, rows) { const cell=v=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}; const b=new Blob(['\uFEFF'+[header,...rows].map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);toast('CSV exported');}
 document.addEventListener('click',async e=>{
- const b=e.target.closest('[data-action]'); if(!b||busy)return; const a=b.dataset.action,id=b.dataset.id,c=state?.campaigns.find(c=>c.id===id); e.preventDefault();
+ const b=e.target.closest('[data-action]'); if(!b||busy||authWorking)return; const a=b.dataset.action,id=b.dataset.id,c=state?.campaigns.find(c=>c.id===id); e.preventDefault();
+ if(a==='auth-back'){authStep='email';authError='';render();return;}
+ if(a==='resend-code'){if(Date.now()>=resendAt)await sendCode(authEmail);return;}
+ if(a==='sign-out'){await signOut();return;}
  if(a==='menu'){navOpen=!navOpen;render();return;}
  if(a==='close'){closeModal();return;}
  if(a==='home'){navOpen=false;page='overview';render();return;}
@@ -163,7 +203,9 @@ document.addEventListener('click',async e=>{
  if(a==='export-transactions'){csvDownload('Currenc_Connect_Distributions.csv',['Simulation ID','Campaign','Shareholder','Network','Amount','Receiving address','UTC time','Status'],transactions().map(t=>[t.id,state.campaigns.find(c=>c.id===t.campaign)?.name,state.holders.find(h=>h.id===t.holder)?.name,t.chain,t.amount,t.wallet,t.at,'Simulated']));return;}
 });
 document.addEventListener('submit',async e=>{
- const f=e.target;if(!f.id.endsWith('-form'))return;e.preventDefault();if(busy)return;const data=Object.fromEntries(new FormData(f));const id=f.dataset.id;
+ const f=e.target;if(!f.id.endsWith('-form'))return;e.preventDefault();if(busy||authWorking)return;const data=Object.fromEntries(new FormData(f));const id=f.dataset.id;
+ if(f.id==='login-email-form'){await sendCode(data.email);return;}
+ if(f.id==='login-code-form'){await verifyCode(data.code);return;}
  if(f.id==='kyc-form'){const next=f.dataset.campaign;if(await command({type:'kyc',...data,consent:!!data.consent},'Demo identity saved')){if(next)join(state.campaigns.find(c=>c.id===next));}}
  if(f.id==='verify-form'){if(await command({type:'verify',campaignId:id,...data},'Demo holdings saved'))join(state.campaigns.find(c=>c.id===id));}
  if(f.id==='wallet-form'){if(await command({type:'wallet',campaignId:id,...data},'Demo wallet saved'))join(state.campaigns.find(c=>c.id===id));}

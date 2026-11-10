@@ -15,6 +15,7 @@
     "build:offline": "node scripts/run.mjs offline"
   },
   "dependencies": {
+    "@neondatabase/auth": "0.6.0-beta",
     "@neondatabase/serverless": "1.2.0"
   }
 }

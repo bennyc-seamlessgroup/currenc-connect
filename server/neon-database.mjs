@@ -11,7 +11,16 @@ const statements = new Map([
 ]);
 const databases = new Map();
 export function createNeonDatabase(query) {
-  return {prepare(statement) {
+  return {async adoptWorkspace(legacyId,accountId) {
+    try {
+      const rows=await query('UPDATE currenc_connect_workspaces SET id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM currenc_connect_workspaces WHERE id = $1) RETURNING id',[accountId,legacyId]);
+      return rows.length===1;
+    } catch(error) {
+      // Another browser may have initialized the same account concurrently.
+      if(error.code==='23505')return false;
+      throw error;
+    }
+  },prepare(statement) {
     const sql = statements.get(statement);
     if (!sql) throw new Error('Unsupported workspace query');
     let values = [];

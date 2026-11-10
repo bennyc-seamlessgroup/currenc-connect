@@ -379,3 +379,23 @@ dialog::backdrop { background: #152c2c66; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Account access uses the same restrained typography as the workspace. */
+.auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 48px 24px; }
+.auth-wrap { width: 100%; max-width: 420px; }
+.auth-brand { justify-content: center; margin: 0 0 36px; }
+.auth-card { padding: 36px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.auth-card h1 { font-size: 28px; }
+.auth-intro { margin-top: 14px; color: var(--muted); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.auth-intro strong { color: var(--ink); font-weight: 500; }
+.auth-form { display: flex; flex-direction: column; gap: 24px; margin-top: 28px; }
+.auth-error { color: #a1433c; font-size: 14px; line-height: 1.6; }
+.auth-links { display: flex; justify-content: space-between; gap: 16px; margin-top: 24px; }
+.auth-links .text-btn { font-size: 13px; }
+.auth-footnote { text-align: center; margin-top: 22px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.sidebar-user > strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user > .icon-btn { width: 30px; height: 30px; }
+@media(max-width: 480px) {
+  .auth-card { padding: 30px 24px; }
+  .auth-page { padding: 32px 20px; }
+}

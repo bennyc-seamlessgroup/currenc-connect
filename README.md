@@ -11,7 +11,7 @@ npm run dev
 
 Open **http://localhost:5173**. `http://127.0.0.1:5173` also works. On Mac, double-click `Start.command` or run `zsh Start.command`.
 
-Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon driver used by the Vercel API. The localhost server continues to use built-in Node modules.
+Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon database and Auth SDKs used by the Vercel APIs. The localhost server continues to use built-in Node modules.
 
 The local HTTP server stores workspace data in `.local/workspace.sqlite`. Data survives browser reloads and server restarts. Company and shareholder views share one demo workspace. The server listens on loopback only.
 
@@ -57,7 +57,8 @@ The optional offline export is `outputs/Currenc_Connect_Offline.html`. Normal de
 | `scripts/dev.mjs` | Build and launch localhost |
 | `scripts/run.mjs` | Select a compatible installed Node runtime |
 | `scripts/build.mjs` | Build Vercel browser assets and Worker; optional offline export |
-| `api/workspace.js` | Native Vercel API entry |
+| `api/workspace.js` | Authenticated Vercel workspace API |
+| `api/auth.js` | Email code sign-in, session check and sign-out |
 | `server/` | Cloud database and sandbox session adapters |
 | `vercel.json` | Vercel output and response headers |
 | `drizzle/0000_workspace.sql` | Initial database schema |
@@ -73,9 +74,15 @@ Vercel deployment is configured in `vercel.json`: the build command is `npm run 
 
 The native `/api/workspace` function uses Neon Postgres through `@neondatabase/serverless`. Connect a Neon database to this Vercel project, enable the connection for Production and Preview, and redeploy. The integration must supply `DATABASE_URL` or `POSTGRES_URL`; never commit either value. The adapter creates its dedicated `currenc_connect_workspaces` table on first use and preserves the revision lock used for claims.
 
-The hosted sandbox identifies each browser using a random, secure, HttpOnly session cookie. Both demo roles share that browser workspace; different sessions are isolated. This is **not account login or production enterprise authorization**. The cookie lasts 30 days; clearing it starts a new workspace. Local data is not automatically uploaded. Missing database configuration produces a clear 503 response rather than storing data in temporary server memory or silently switching to browser storage.
+The hosted app uses managed Neon Auth (Better Auth) with email verification codes. Open the app, enter your email and enter the 6-digit code from Neon. Signing in with the same account loads the same workspace across browsers, devices and the configured app URLs. Sign out from the sidebar. Login verifies email ownership; it does not verify KYC or shareholdings.
 
-Production account authentication, company permissions and recovery across devices remain future work. Vercel Deployment Protection settings are preserved.
+The API validates the provider session on every request and keys records by the provider user ID, never by a caller-supplied email or header. Auth tokens stay in secure HttpOnly cookies and are not returned to frontend JSON or stored in localStorage. Cached session cookies are excluded so provider revocation is checked immediately. The SDK-required cache signer is ephemeral because that cache is disabled; it does not sign or validate the actual provider session.
+
+On first account login, an existing browser demo is atomically moved into the account if the account has no saved workspace. Its data and revision are preserved. An existing account workspace is never overwritten or merged with a different browser demo; that unimported demo remains in the database. Local SQLite and offline browser data are not uploaded automatically. Clearing login cookies signs the browser out; it no longer discards the account workspace.
+
+Auth configuration lives in `server/auth-config.mjs` (a public service URL, not a credential), with optional `NEON_AUTH_BASE_URL` override. Neon must allow the canonical production domain and stable branch URL. Email sign-up/sign-in and verification codes are enabled. The current shared Neon sender is suitable for the sandbox; configure a dedicated email sender before a public production launch. Missing provider/database configuration fails explicitly.
+
+Company memberships, invitations and enterprise role permissions remain future work. The company/shareholder toggle still selects demo views within one authenticated account. Vercel Deployment Protection settings are preserved.
 
 The original Sites Worker target is retained at `dist/server/index.js`, with its existing project identity in `.openai/hosting.json`. It requires a `DB` D1 binding and a trusted gateway supplying the authenticated user identity. This is separate from the planned Vercel deployment.
 

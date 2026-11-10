@@ -4,23 +4,32 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
 import worker from '../dist/server/index.js';
 import entry from '../api/workspace.js';
-import {createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
+import authEntry from '../api/auth.js';
+import {seedState} from '../lib/domain.ts';
+import {accountWorkspaceId,legacyWorkspaceId,createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
 import {createNeonDatabase} from '../server/neon-database.mjs';
 
 const origin = 'https://demo.vercel.app';
 function database() {
   const db=new DatabaseSync(':memory:');
   db.exec(readFileSync('drizzle/0000_workspace.sql','utf8'));
-  return {prepare(sql){let values=[];return {
+  return {async adoptWorkspace(legacyId,accountId){return db.prepare('UPDATE demo_workspaces SET id = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM demo_workspaces WHERE id = ?)').run(accountId,legacyId,accountId).changes===1;},prepare(sql){let values=[];return {
     bind(...args){values=args;return this;},
     async first(){return db.prepare(sql).get(...values)||null;},
     async run(){return {meta:{changes:Number(db.prepare(sql).run(...values).changes)}};},
   };}};
 }
+const issuer='https://auth.example.test/db/auth';
+const userA={id:'user-a',name:'Investor A',email:'a@example.com',emailVerified:true};
+const userB={id:'user-b',name:'Investor B',email:'b@example.com',emailVerified:true};
+const cookieA='__Secure-neon-auth.session_token=device-a';
+const cookieA2='__Secure-neon-auth.session_token=device-a2';
+const cookieB='__Secure-neon-auth.session_token=device-b';
 function harness() {
   const DB=database();
-  const options={database:async()=>DB,environment:()=>({DATABASE_URL:'test-only'})};
-  return {handle:createVercelWorkspaceHandler(options),options};
+  const sessions=new Map([[cookieA,userA],[cookieA2,userA],[cookieB,userB]]);
+  const options={database:async()=>DB,environment:()=>({DATABASE_URL:'test-only'}),authenticate:async request=>({user:sessions.get((request.headers.get('Cookie')||'').split(';')[0])||null,issuer,headers:new Headers()})};
+  return {handle:createVercelWorkspaceHandler(options),options,DB,sessions};
 }
 function request(cookie,command,headers={}) {
   return new Request(origin+'/api/workspace',{
@@ -28,7 +37,7 @@ function request(cookie,command,headers={}) {
     ...(command?{body:JSON.stringify(command)}:{}),
   });
 }
-const session = response=>response.headers.get('Set-Cookie').split(';')[0];
+
 
 test('Vercel build serves browser assets only and exports a native API function',async()=>{
   const config=JSON.parse(readFileSync('vercel.json','utf8'));
@@ -36,7 +45,7 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(config.framework,null);
   assert.equal(config.buildCommand,'npm run build');
   assert.equal(JSON.parse(readFileSync('package.json','utf8')).engines.node,'22.x');
-  assert.equal(typeof entry.fetch,'function');
+  assert.equal(typeof entry.fetch,'function');assert.equal(typeof authEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
   assert.deepEqual(files,['app.js','favicon.svg','index.html','styles.css']);
   for(const [path,file]of [['/','index.html'],['/app.js','app.js'],['/styles.css','styles.css']]) {
@@ -45,54 +54,91 @@ test('Vercel build serves browser assets only and exports a native API function'
   }
 });
 
-test('Vercel creates isolated secure sessions and ignores caller-supplied user identities',async()=>{
-  const {handle}=harness();
-  const a=await handle(request(null,null,{'oai-authenticated-user-id':'forged'}));
-  assert.equal(a.status,200);
-  assert.match(a.headers.get('Set-Cookie'),/; Path=\/; HttpOnly; Secure; SameSite=Lax/);
-  assert.equal((await a.json()).runtime.storage,'Cloud database');
-  const cookie=session(a);
-  const saved=await handle(request(cookie,{type:'kyc',name:'Session A',email:'a@example.com',country:'Hong Kong',consent:true}));
-  assert.equal(saved.status,200);
-  assert.equal((await saved.json()).state.profile.name,'Session A');
-  const b=await handle(request(null,null,{'oai-authenticated-user-id':'forged'}));
-  assert.notEqual(session(b),cookie);
-  assert.equal((await b.json()).state.profile.kyc,false);
-
+test('Vercel requires verified account login and ignores browser capability and user headers',async()=>{
+  const {handle,sessions}=harness();
+  const anonymous=await handle(request(null,null,{'oai-authenticated-user-id':'user-a'}));
+  assert.equal(anonymous.status,401);
+  assert.equal(anonymous.headers.get('Set-Cookie'),null);
+  assert.equal((await anonymous.json()).signIn,true);
+  assert.equal((await handle(request('__Host-cc-session='+'a'.repeat(43)))).status,401);
+  sessions.set('unverified',{...userA,emailVerified:false});
+  assert.equal((await handle(request('unverified'))).status,403);
 });
 
-test('Vercel preserves state across handler instances and concurrent claims settle once',async()=>{
+test('two devices for the same account see one workspace; a different account stays isolated',async()=>{
   const {handle,options}=harness();
-  const cookie=session(await handle(request()));
-  const command=async cmd=>{const response=await handle(request(cookie,cmd));assert.equal(response.status,200);return response.json();};
+  const response=await handle(request(cookieA,{type:'kyc',name:'Shared Investor',email:'demo@example.com',country:'Hong Kong',consent:true}));
+  assert.equal(response.status,200);
+  const fromOtherDevice=await createVercelWorkspaceHandler(options)(request(cookieA2));
+  const data=await fromOtherDevice.json();
+  assert.equal(data.state.profile.name,'Shared Investor');
+  assert.equal(data.user.email,'a@example.com');
+  assert.equal(data.runtime.identity,'Account workspace');
+  const other=await handle(request(cookieB,null,{'oai-authenticated-user-id':'user-a'}));
+  assert.equal((await other.json()).state.profile.kyc,false);
+});
+
+test('first account login atomically adopts the owned browser workspace and preserves revision',async()=>{
+  const {handle,DB}=harness();
+  const legacyCookie='__Host-cc-session='+'a'.repeat(43);
+  const oldId=legacyWorkspaceId(legacyCookie);
+  const state=seedState();state.profile.name='Existing browser data';
+  await DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind(oldId,JSON.stringify(state)).run();
+  await DB.prepare('UPDATE demo_workspaces SET data = ?, revision = revision + 1 WHERE id = ? AND revision = ?').bind(JSON.stringify(state),oldId,0).run();
+  const identityOptions={database:async()=>DB,environment:()=>({DATABASE_URL:'test'}),authenticate:async()=>({user:userA,issuer,headers:new Headers()})};
+  const response=await createVercelWorkspaceHandler(identityOptions)(request(cookieA+'; '+legacyCookie));
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.state.profile.name,'Existing browser data');
+  assert.equal(data.revision,1);
+  assert.match(response.headers.get('Set-Cookie'),/Max-Age=0/);
+  assert.equal(await DB.prepare('SELECT data, revision FROM demo_workspaces WHERE id = ?').bind(oldId).first(),null);
+  assert.ok(await DB.prepare('SELECT data, revision FROM demo_workspaces WHERE id = ?').bind(accountWorkspaceId(issuer,userA.id)).first());
+  assert.equal(await DB.adoptWorkspace(oldId,accountWorkspaceId(issuer,userB.id)),false);
+});
+
+test('existing account data is never overwritten by a different browser demo',async()=>{
+  const {handle,DB}=harness();
+  await handle(request(cookieA,{type:'kyc',name:'Account data',email:'demo@example.com',country:'Hong Kong',consent:true}));
+  const legacyCookie='__Host-cc-session='+'b'.repeat(43),oldId=legacyWorkspaceId(legacyCookie);
+  const state=seedState();state.profile.name='Other browser demo';
+  await DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind(oldId,JSON.stringify(state)).run();
+  const bound=createVercelWorkspaceHandler({database:async()=>DB,environment:()=>({DATABASE_URL:'test'}),authenticate:async()=>({user:userA,issuer,headers:new Headers()})});
+  const data=await (await bound(request(cookieA+'; '+legacyCookie))).json();
+  assert.equal(data.state.profile.name,'Account data');
+  assert.equal(JSON.parse((await DB.prepare('SELECT data, revision FROM demo_workspaces WHERE id = ?').bind(oldId).first()).data).profile.name,'Other browser demo');
+});
+
+test('authenticated concurrent claims across devices settle exactly once',async()=>{
+  const {handle,options}=harness();
+  const command=async cmd=>{const response=await handle(request(cookieA,cmd));assert.equal(response.status,200);return response.json();};
   await command({type:'kyc',name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:true});
   await command({type:'verify',campaignId:'curr-welcome',shares:5000,source:'broker'});
   await command({type:'wallet',campaignId:'curr-welcome',chain:'ETH',wallet:'0x4444444444444444444444444444444444444444'});
   await command({type:'review',holderId:'sample-iris',approved:true});
   await command({type:'snapshot',campaignId:'curr-welcome'});
-  const responses=await Promise.all([handle(request(cookie,{type:'claim',campaignId:'curr-welcome'})),handle(request(cookie,{type:'claim',campaignId:'curr-welcome'}))]);
+  const responses=await Promise.all([cookieA,cookieA2].map(cookie=>handle(request(cookie,{type:'claim',campaignId:'curr-welcome'}))));
   assert.deepEqual(responses.map(r=>r.status).sort(),[200,422]);
-  const reload=await createVercelWorkspaceHandler(options)(request(cookie));
-  const data=await reload.json();
+  const data=await (await createVercelWorkspaceHandler(options)(request(cookieA2))).json();
   assert.equal(data.state.transactions.length,1);
-  assert.equal(data.state.holders.find(h=>h.id==='self-curr-welcome').claimed,500);
   assert.equal(data.state.treasury.curr.ETH,24500);
 });
 
-test('Vercel rejects cross-origin writes and missing sessions before database access',async()=>{
+test('revoked sessions and cross-origin writes are rejected before database access',async()=>{
   let calls=0;
-  const handle=createVercelWorkspaceHandler({environment:()=>({DATABASE_URL:'test'}),database:async()=>{calls++;return database();}});
-  assert.equal((await handle(request(null,{type:'reset'},{Origin:'https://other.test'}))).status,403);
-  assert.equal((await handle(request(null,{type:'reset'}))).status,409);
+  const {handle,sessions,options}=harness();
+  await handle(request(cookieA));sessions.delete(cookieA);
+  const guarded=createVercelWorkspaceHandler({...options,database:async()=>{calls++;return database();}});
+  assert.equal((await guarded(request(cookieA))).status,401);
+  assert.equal((await guarded(request(cookieA2,{type:'reset'},{Origin:'https://other.test'}))).status,403);
   assert.equal(calls,0);
 });
 
-test('Vercel reports missing database configuration without pretending to save data',async()=>{
-  const handle=createVercelWorkspaceHandler({environment:()=>({})});
-  const response=await handle(request());
+test('Vercel reports missing database configuration for a signed-in user',async()=>{
+  const handle=createVercelWorkspaceHandler({environment:()=>({}),authenticate:async()=>({user:userA,issuer,headers:new Headers()})});
+  const response=await handle(request(cookieA));
   assert.equal(response.status,503);
   assert.equal((await response.json()).code,'DATABASE_NOT_CONFIGURED');
-  assert.equal(response.headers.get('Set-Cookie'),null);
 });
 
 test('Neon adapter parameterizes data and uses revision-conditional updates',async()=>{

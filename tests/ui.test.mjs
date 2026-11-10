@@ -7,7 +7,8 @@ import vm from 'node:vm';
 import {seedState,applyCommand} from '../lib/domain.ts';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const app=readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'');
-function harness(){
+function harness({requiresLogin=false}={}){
+ let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
  const context=vm.createContext({console,crypto,structuredClone,setTimeout:()=>1,clearTimeout(){},Blob,URL,
@@ -15,10 +16,21 @@ function harness(){
   document:{querySelector:node,addEventListener:(k,v)=>handlers[k]=v,body:{classList:{add(){},remove(){}}}},
   window:{addEventListener(){},scrollTo(){}},
   FormData:class{constructor(f){this.entries=Object.entries(f.fields||{});}*[Symbol.iterator](){yield* this.entries;}getAll(k){return this.entries.filter(([a])=>a===k).map(([,v])=>v);}},
-  fetch:async(_url,options)=>{try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,json:async()=>({state:stored})};}catch(e){return{ok:false,json:async()=>({error:e.message})};}}
+  fetch:async(_url,options)=>{
+   if(_url.startsWith('/api/auth')) {
+    const action=new URL('https://test.local'+_url).searchParams.get('action');
+    const body=JSON.parse(options.body);
+    if(action==='verify-code'&&body.code!=='123456')return {ok:false,status:400,json:async()=>({error:'Invalid code'})};
+    if(action==='verify-code')signedIn=true;
+    if(action==='sign-out')signedIn=false;
+    return {ok:true,status:200,json:async()=>({success:true})};
+   }
+   if(!signedIn)return {ok:false,status:401,json:async()=>({signIn:true,error:'Sign in'})};
+   try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,status:200,json:async()=>({state:stored,...(requiresLogin?{user:{name:'Account owner',email:'owner@example.com'}}:{})})};}catch(e){return{ok:false,status:422,json:async()=>({error:e.message})};}
+  }
  });
  vm.runInContext(domain+'\n'+app+'\n globalThis.ui={load,render,join,createForm,detail,get state(){return state;}}',context);
- return{context,nodes,handlers,async start(){await context.ui.load();},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset}});},get stored(){return stored;}};
+ return{context,nodes,handlers,expire(){signedIn=false;},async start(){await context.ui.load();},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset}});},get stored(){return stored;}};
 }
 test('UI: navigates all company pages, shareholder pages and settings without render errors',async()=>{
  const h=harness();await h.start();assert.match(h.nodes['#app'].innerHTML,/Overview/);
@@ -67,4 +79,33 @@ test('UI: mobile navigation closes after a page is selected',async()=>{
  assert.match(h.nodes['#app'].innerHTML,/sidebar is-open/);
  await h.click('nav',{page:'campaigns'});
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/sidebar is-open/);
+});
+
+test('UI: email code login unlocks the workspace; logout removes private state and dialogs',async()=>{
+ const h=harness({requiresLogin:true});await h.start();
+ assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/New campaign/);
+ await h.submit('login-email-form',{email:'owner@example.com'});
+ assert.match(h.nodes['#app'].innerHTML,/login-code-form/);
+ await h.submit('login-code-form',{code:'000000'});
+ assert.match(h.nodes['#app'].innerHTML,/Invalid code/);
+ await h.submit('login-code-form',{code:'123456'});
+ assert.match(h.nodes['#app'].innerHTML,/Account owner/);
+ assert.match(h.nodes['#app'].innerHTML,/Sign out/);
+ await h.click('create');assert.ok(h.nodes['#dialog'].open);
+ await h.click('sign-out');
+ assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
+ assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
+});
+
+test('UI: expired account session closes the workspace rather than showing stale data',async()=>{
+ const h=harness({requiresLogin:true});await h.start();
+ await h.submit('login-email-form',{email:'owner@example.com'});
+ await h.submit('login-code-form',{code:'123456'});
+ await h.click('kyc');h.expire();
+ await h.submit('kyc-form',{name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:'on'});
+ assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
+ assert.equal(h.nodes['#dialog'].innerHTML,'');
 });
