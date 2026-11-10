@@ -131,7 +131,7 @@ test('UI: public introduction explains share-based airdrops and preserves invita
  assert.match(landing,/each campaign’s rules determine your token allocation/);
  assert.match(landing,/id="main"/);assert.match(landing,/id="how-it-works"/);
  assert.doesNotMatch(landing,/sandbox|preview|airdrop-illustration/i);
- assert.match(landing,/images\/shareholder-rewards-vertical.jpg/);assert.match(landing,/Current campaigns/);
+ assert.match(landing,/images\/shareholder-rewards.png/);assert.match(landing,/Current campaigns/);
  assert.doesNotMatch(landing,/demo@example.com|Company workspace|login-email-form/);
  await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
  await h.submit('login-email-form',{email:'invited@example.com'});

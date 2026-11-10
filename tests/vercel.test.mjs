@@ -47,9 +47,9 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(typeof publicEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
   assert.deepEqual(files,['app.js','favicon.svg','images','index.html','styles.css']);
-  const hero=await worker.fetch(new Request(origin+'/images/shareholder-rewards-vertical.jpg'),{});
-  assert.equal(hero.headers.get('Content-Type'),'image/jpeg');
-  assert.deepEqual(Buffer.from(await hero.arrayBuffer()),readFileSync('src/assets/landing/shareholder-rewards-vertical.jpg'));
+  const hero=await worker.fetch(new Request(origin+'/images/shareholder-rewards.png'),{});
+  assert.equal(hero.headers.get('Content-Type'),'image/png');
+  assert.deepEqual(Buffer.from(await hero.arrayBuffer()),readFileSync('src/assets/landing/shareholder-rewards.png'));
   for(const [path,file]of [['/','index.html'],['/app.js','app.js'],['/styles.css','styles.css']]) {
     const response=await worker.fetch(new Request(origin+path),{});
     assert.equal(await response.text(),readFileSync(`${config.outputDirectory}/${file}`,'utf8'));

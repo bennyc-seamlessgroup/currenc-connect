@@ -60,6 +60,12 @@ Updated: 10 November 2026 (Hong Kong).
 - All 77 existing tests pass, including the adapted public browsing, escaping and sign-in-continuation regression. Build/asset and whitespace checks pass. Native isolated QA with five synthetic campaigns verified desktop next scrolling, phone horizontal scroll to the end, disabled end control and opening the final campaign. Desktop and 390px phone measurements have no page-level horizontal overflow. Test campaigns remain in memory only and do not enter the live database.
 - Production source `b905f4b` is Ready (deployment `85RznHc1TnrnPoASnBLNBbuPfAKa`). Live verification confirmed the approved 1024 × 1536 image, no search field, the existing single campaign, controls hidden when the row fits, and the full 310 × 465 phone image without page-level overflow. Browser error logs are empty. No live account, campaign, membership or balance was modified; the isolated QA server is stopped and the primary localhost server remains running.
 
+## Transparent shareholder illustration
+
+- Latest approved hero: a text-free flat illustration of a shareholder with an intact portfolio plus separately arriving parachute tokens. The phone-holding hand is the corrected version approved by the user. This replaces the shares-to-token arrow image so the artwork conveys additional rewards rather than converting shares.
+- Copied the exact approved 1122 × 1402 PNG into `src/assets/landing/shareholder-rewards.png`. The build serves image/png and preserves the original bytes and alpha; the outer hero container is transparent. No new image generation, crop or redesign was performed during integration.
+- All 77 tests, build/asset checks and whitespace checks pass. Native local desktop and 390px phone checks confirm the image loads, stays fully contained (310 × 387 on phone) and blends into the page with no page-level horizontal overflow. Public campaign behavior, account access and data remain unchanged.
+
 ## Company workspaces and permissions
 
 - Added company creation and first-account onboarding. A new company starts empty; new shareholders do not inherit sample investor records.

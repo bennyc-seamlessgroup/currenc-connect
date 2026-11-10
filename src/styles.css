@@ -408,7 +408,7 @@ dialog::backdrop { background: #152c2c66; }
 .landing-actions .btn { padding: 15px 23px; font-size: 16px; }
 .landing-how-link { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
 .landing-how-link .icon { width: 16px; height: 16px; }
-.landing-visual { align-self: center; justify-self: end; width: 100%; max-width: 400px; min-width: 0; border-radius: 20px; overflow: hidden; background: #f8f6f2; }
+.landing-visual { align-self: center; justify-self: end; width: 100%; max-width: 400px; min-width: 0; background: transparent; }
 .landing-visual img { width: 100%; height: auto; display: block; object-fit: contain; }
 .landing-process { padding: 36px 0 50px; border-top: 1px solid var(--line); scroll-margin-top: 24px; }
 .landing-process > h2 { font-size: 27px; letter-spacing: -.7px; margin-bottom: 34px; }
