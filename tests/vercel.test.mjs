@@ -8,16 +8,11 @@ import authEntry from '../api/auth.js';
 import {seedState} from '../lib/domain.ts';
 import {accountWorkspaceId,legacyWorkspaceId,createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
 import {createNeonDatabase} from '../server/neon-database.mjs';
+import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 
 const origin = 'https://demo.vercel.app';
 function database() {
-  const db=new DatabaseSync(':memory:');
-  db.exec(readFileSync('drizzle/0000_workspace.sql','utf8'));
-  return {async adoptWorkspace(legacyId,accountId){return db.prepare('UPDATE demo_workspaces SET id = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM demo_workspaces WHERE id = ?)').run(accountId,legacyId,accountId).changes===1;},prepare(sql){let values=[];return {
-    bind(...args){values=args;return this;},
-    async first(){return db.prepare(sql).get(...values)||null;},
-    async run(){return {meta:{changes:Number(db.prepare(sql).run(...values).changes)}};},
-  };}};
+  return createSqliteDatabase(':memory:');
 }
 const issuer='https://auth.example.test/db/auth';
 const userA={id:'user-a',name:'Investor A',email:'a@example.com',emailVerified:true};
@@ -73,7 +68,7 @@ test('two devices for the same account see one workspace; a different account st
   const data=await fromOtherDevice.json();
   assert.equal(data.state.profile.name,'Shared Investor');
   assert.equal(data.user.email,'a@example.com');
-  assert.equal(data.runtime.identity,'Account workspace');
+  assert.match(data.runtime.identity,/Company memberships/);
   const other=await handle(request(cookieB,null,{'oai-authenticated-user-id':'user-a'}));
   assert.equal((await other.json()).state.profile.kyc,false);
 });
@@ -110,18 +105,24 @@ test('existing account data is never overwritten by a different browser demo',as
 });
 
 test('authenticated concurrent claims across devices settle exactly once',async()=>{
-  const {handle,options}=harness();
-  const command=async cmd=>{const response=await handle(request(cookieA,cmd));assert.equal(response.status,200);return response.json();};
+  const {handle,options,DB}=harness();
+  await DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind(accountWorkspaceId(issuer,userA.id),JSON.stringify(seedState())).run();
+  const first=await (await handle(request(cookieA))).json();
+  const organizationId=first.access.organizations.find(o=>o.ticker==='CURR').id;
+  const initial=await (await handle(new Request(origin+'/api/workspace?view=company&organization='+organizationId,{headers:{Cookie:cookieA}}))).json();
+  const campaignId=initial.state.campaigns.find(c=>c.legacyId==='curr-welcome').id;
+  const holderId=initial.state.holders.find(h=>h.legacyId==='sample-iris').id;
+  const command=async cmd=>{const response=await handle(request(cookieA,{...cmd,organizationId}));assert.equal(response.status,200,await response.clone().text());return response.json();};
   await command({type:'kyc',name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:true});
-  await command({type:'verify',campaignId:'curr-welcome',shares:5000,source:'broker'});
-  await command({type:'wallet',campaignId:'curr-welcome',chain:'ETH',wallet:'0x4444444444444444444444444444444444444444'});
-  await command({type:'review',holderId:'sample-iris',approved:true});
-  await command({type:'snapshot',campaignId:'curr-welcome'});
-  const responses=await Promise.all([cookieA,cookieA2].map(cookie=>handle(request(cookie,{type:'claim',campaignId:'curr-welcome'}))));
+  await command({type:'verify',campaignId,shares:5000,source:'broker'});
+  await command({type:'wallet',campaignId,chain:'ETH',wallet:'0x4444444444444444444444444444444444444444'});
+  await command({type:'review',holderId,approved:true});
+  await command({type:'snapshot',campaignId});
+  const responses=await Promise.all([cookieA,cookieA2].map(cookie=>handle(request(cookie,{type:'claim',organizationId,campaignId}))));
   assert.deepEqual(responses.map(r=>r.status).sort(),[200,422]);
-  const data=await (await createVercelWorkspaceHandler(options)(request(cookieA2))).json();
+  const data=await (await createVercelWorkspaceHandler(options)(new Request(origin+'/api/workspace?view=company&organization='+organizationId,{headers:{Cookie:cookieA2}}))).json();
   assert.equal(data.state.transactions.length,1);
-  assert.equal(data.state.treasury.curr.ETH,24500);
+  assert.equal(data.state.treasury[organizationId].ETH,24500);
 });
 
 test('revoked sessions and cross-origin writes are rejected before database access',async()=>{

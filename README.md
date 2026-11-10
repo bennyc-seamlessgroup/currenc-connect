@@ -1,6 +1,6 @@
 # Currenc Connect
 
-A local shareholder rewards workspace for companies and investors. English is the current interface language; Chinese selection will be added later.
+A shareholder rewards platform with company workspaces, teams and individual investor accounts. English is the current interface language; Chinese selection will be added later.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ Open **http://localhost:5173**. `http://127.0.0.1:5173` also works. On Mac, doub
 
 Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon database and Auth SDKs used by the Vercel APIs. The localhost server continues to use built-in Node modules.
 
-The local HTTP server stores workspace data in `.local/workspace.sqlite`. Data survives browser reloads and server restarts. Company and shareholder views share one demo workspace. The server listens on loopback only.
+The local HTTP server stores data in `.local/workspace.sqlite`. Data survives browser reloads and server restarts. Localhost injects one explicit developer identity, which owns the existing sample companies. Company access rules and personal shareholder records use the same platform service as Vercel. The server listens on loopback only; never expose this developer identity on a public server.
 
 To use another port:
 
@@ -23,15 +23,33 @@ PORT=5174 npm run dev
 
 Stop with Ctrl+C. Source changes require restarting the server to rebuild the app. Existing local data is preserved. The previous offline HTML uses separate browser storage; it is not automatically imported into the local database.
 
-## Demo flow
+## Company and shareholder access
+
+New hosted accounts choose **Continue as a shareholder** or **Create a company**. Creating a company grants ownership of that new workspace only. Company names and tickers do not grant access to an existing company. A new company starts with no campaigns, shareholders or test funds.
+
+| Role | Company access |
+| --- | --- |
+| Owner | All company actions; appoint administrators; manage other members |
+| Admin | Campaigns, reviews, treasury and distributions; invite/manage operators and viewers |
+| Operator | Campaigns, registration reviews, snapshots and unlock settings |
+| Viewer | Read-only company data and exports |
+| Shareholder | Published campaigns and only their own identity, holdings, receiving wallets and rewards |
+
+The company owner cannot be removed or demoted. Members cannot change their own role. Company members share one company ledger, with revision checks for simultaneous writes. Shareholder identity is independent of company membership: an owner can also use their personal shareholder portal, but cannot claim another shareholder's allocation.
+
+Open **Company → Team → Invite member**, enter an email and role, then use **Copy link**. Share this link yourself: **the app does not send an invitation email**. The recipient signs in with the invited email and accepts the invitation under **Invitations**. Links expire after seven days and can be revoked. A link alone never grants access. Accepted invitations cannot be replayed after membership removal. Role changes and removals apply on the next protected request; the UI clears inaccessible company data and returns to the shareholder portal.
+
+Only published campaign settings appear in the shareholder directory. Company treasury, review queues, team details and other investors' records are excluded from shareholder responses. All write permissions are enforced server-side; changing a browser view or supplying another account/holder ID does not grant permission.
+
+## Existing demo flow
 
 1. Select **Shareholder**, then **CURRENC Group → View rewards → Register**.
 2. Complete demo KYC with `Demo Investor / demo@example.com` and register 5,000 shares.
 3. Select Ethereum, Solana or BNB Chain and save the supplied demo wallet address.
-4. Select **Company → Shareholders** and approve Iris. Approve your own registration too if you chose manual statement review.
+4. An owner, admin or operator selects **Company → CURRENC Group → Shareholders** and approves Iris. Approve your own registration too if you chose manual statement review.
 5. Open **Campaigns → Shareholder Welcome Rewards → Preview snapshot → Lock snapshot**.
 6. Select **Shareholder → My rewards → View reward → Simulate claim** to claim 500 uCURR.
-7. Return to **Company** to check Treasury, Distributions and CSV exports.
+7. Return to the permitted company workspace to check Treasury, Distributions and CSV exports. This flow uses the preserved sample companies on localhost or an account migrated from the previous demo. New shareholders receive no sample investor records; a company must publish a campaign before it appears in their directory.
 
 ## Commands
 
@@ -60,8 +78,11 @@ The optional offline export is `outputs/Currenc_Connect_Offline.html`. Normal de
 | `api/workspace.js` | Authenticated Vercel workspace API |
 | `api/auth.js` | Email code sign-in, session check and sign-out |
 | `server/` | Cloud database and sandbox session adapters |
+| `server/platform.mjs` | Company memberships, invitations, tenant boundaries and shareholder projections |
+| `server/sqlite-database.mjs` | SQLite transactions for loopback development and isolated tests |
 | `vercel.json` | Vercel output and response headers |
 | `drizzle/0000_workspace.sql` | Initial database schema |
+| `drizzle/0001_platform.sql` | Accounts, organizations, memberships, invitations and team audit |
 | `tests/` | Domain, API, UI and localhost regression tests |
 
 Known sample Chinese labels from earlier local data are displayed in English without resetting the database. User-authored campaign names and other content are retained.
@@ -72,19 +93,19 @@ Repository: [bennyc-seamlessgroup/currenc-connect](https://github.com/bennyc-sea
 
 Vercel deployment is configured in `vercel.json`: the build command is `npm run build`, the framework preset is Other, and the output directory is `dist/client`. Node is pinned to 22.x. The build retains the separate Worker output for localhost and Sites.
 
-The native `/api/workspace` function uses Neon Postgres through `@neondatabase/serverless`. Connect a Neon database to this Vercel project, enable the connection for Production and Preview, and redeploy. The integration must supply `DATABASE_URL` or `POSTGRES_URL`; never commit either value. The adapter creates its dedicated `currenc_connect_workspaces` table on first use and preserves the revision lock used for claims.
+The native `/api/workspace` function uses Neon Postgres through `@neondatabase/serverless`. The integration must supply `DATABASE_URL` or `POSTGRES_URL`; never commit either value. The adapter applies additive, idempotent schema creation in a transaction under a Postgres advisory lock. Accounts, memberships and invitations are relational records. Business state remains one revision-protected JSON document per company, so approvals, snapshots, allocations and ledger debits share the same optimistic lock.
 
-The hosted app uses managed Neon Auth (Better Auth) with email verification codes. Open the app, enter your email and enter the 6-digit code from Neon. Signing in with the same account loads the same workspace across browsers, devices and the configured app URLs. Sign out from the sidebar. Login verifies email ownership; it does not verify KYC or shareholdings.
+The hosted app uses managed Neon Auth (Better Auth) with email verification codes. Open the app, enter your email and enter the 6-digit code from Neon. The same account loads its personal records and permitted company memberships across browsers and devices. Sign out from the sidebar. Login verifies email ownership; it does not verify KYC, shareholdings or company representation.
 
 The API validates the provider session on every request and keys records by the provider user ID, never by a caller-supplied email or header. Auth tokens stay in secure HttpOnly cookies and are not returned to frontend JSON or stored in localStorage. Cached session cookies are excluded so provider revocation is checked immediately. The SDK-required cache signer is ephemeral because that cache is disabled; it does not sign or validate the actual provider session.
 
-On first account login, an existing browser demo is atomically moved into the account if the account has no saved workspace. Its data and revision are preserved. An existing account workspace is never overwritten or merged with a different browser demo; that unimported demo remains in the database. Local SQLite and offline browser data are not uploaded automatically. Clearing login cookies signs the browser out; it no longer discards the account workspace.
+An existing browser demo can be atomically adopted only before account initialization. Existing account data is never overwritten with a different browser demo. On the account's first platform request, its previous sample companies are imported as separately owned organizations in one transaction; balances, campaigns, allocations, wallets, claims and revisions are retained. IDs are namespaced to avoid collisions between companies; original IDs are retained as `legacyId`. The old JSON row remains unchanged as a migration archive. Old activity lacks reliable company IDs, so it is retained in the original owner's personal activity rather than shared with newly invited company members. Local SQLite and offline data are not uploaded automatically.
 
 Auth configuration lives in `server/auth-config.mjs` (a public service URL, not a credential), with optional `NEON_AUTH_BASE_URL` override. Neon must allow the canonical production domain and stable branch URL. Email sign-up/sign-in and verification codes are enabled. The current shared Neon sender is suitable for the sandbox; configure a dedicated email sender before a public production launch. Missing provider/database configuration fails explicitly.
 
-Company memberships, invitations and enterprise role permissions remain future work. The company/shareholder toggle still selects demo views within one authenticated account. Vercel Deployment Protection settings are preserved.
+Hosted company navigation lists only owned companies or accepted memberships. Shareholder and company views load separate authorized server projections. Existing Vercel Deployment Protection settings are preserved.
 
-The original Sites Worker target is retained at `dist/server/index.js`, with its existing project identity in `.openai/hosting.json`. It requires a `DB` D1 binding and a trusted gateway supplying the authenticated user identity. This is separate from the planned Vercel deployment.
+The original Sites Worker demo is retained at `dist/server/index.js`, with its existing project identity in `.openai/hosting.json`. It requires a `DB` D1 binding and a trusted gateway identity. It and the optional offline export retain the earlier single-user demo flow; the company/team access platform runs on Vercel and localhost. No Sites deployment is created by this change.
 
 ## Sandbox scope
 
@@ -94,4 +115,4 @@ CURRENC Group / CURR is a real-brand demo; Northstar Labs / NRTH and Harbor Ener
 
 One allocation is shared across receiving networks. Each network has its own test balance; there is no cross-chain bridge. Wallet changes are blocked after a claim. Allocations round down to 6 decimals; caps and rounding remainders are not redistributed. Unlock percentages are raised manually. Form dates use UTC; activity times use Hong Kong time.
 
-Not implemented: real KYC or broker integration, historical holdings evidence, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, production company permissions, invitations, dual approval, automated snapshots or linear vesting.
+Not implemented: real KYC or broker integration, company representation verification, historical holdings evidence, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.

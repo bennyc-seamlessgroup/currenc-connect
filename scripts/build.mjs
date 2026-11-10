@@ -15,6 +15,7 @@ for (const [path,asset] of Object.entries(assets)) {
 }
 const worker=domain+'\nconst ASSETS='+JSON.stringify(assets)+';\n'+await readFile('src/worker.js','utf8');
 await writeFile('dist/server/index.js',worker);await cp('.openai/hosting.json','dist/.openai/hosting.json');
+await writeFile('dist/server/domain.mjs',domain);
 console.log(`Built Currenc Connect Worker: ${(Buffer.byteLength(worker)/1024).toFixed(1)} KiB · 0 external dependencies`);
 console.log('Built browser assets: dist/client');
 // Offline export is optional; the primary app uses the local API and SQLite.

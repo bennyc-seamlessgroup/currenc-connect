@@ -8,17 +8,20 @@ export type Campaign = {
 };
 export type Holder = {
   id: string; campaign: string; name: string; shares: number;
+  accountId?: string;
   status: 'verified' | 'pending' | 'rejected'; allocation: number; claimed: number;
   chain?: Chain; wallet?: string; source: string; asOf: string;
 };
 export type Entry = { id: string; at: string; title: string; detail: string; kind: 'info' | 'success' | 'warning' };
 export type Transaction = { id: string; campaign: string; holder: string; chain: Chain; amount: number; wallet: string; at: string; status: 'simulated' };
 export type State = {
+  companies?: Company[];
   version: number; profile: { name: string; email: string; country: string; kyc: boolean };
   campaigns: Campaign[]; holders: Holder[]; transactions: Transaction[]; activity: Entry[];
   treasury: Record<string, Record<Chain, number>>;
 };
-export const COMPANIES = [
+export type Company = {id:string;name:string;ticker:string;token:string;color:string;description:string;sector:string;initials:string};
+export const COMPANIES: Company[] = [
   { id: 'curr', name: 'CURRENC Group', ticker: 'CURR', token: 'uCURR', color: '#147d76', description: 'Shareholder rewards from CURRENC Group.', sector: 'Financial technology', initials: 'C' },
   { id: 'north', name: 'Northstar Labs', ticker: 'NRTH', token: 'NOVA', color: '#7960b8', description: 'Technology shareholder rewards demo.', sector: 'Technology · fictional company', initials: 'N' },
   { id: 'harbor', name: 'Harbor Energy', ticker: 'HBR', token: 'HBR', color: '#b17935', description: 'Energy shareholder rewards demo.', sector: 'Energy · fictional company', initials: 'H' },
@@ -65,10 +68,13 @@ export function allocate(c: Campaign, holders: Holder[]) {
   assert(result.reduce((s, r) => s + r.amount, 0) <= c.budget + 0.000001, 'Allocation exceeds the campaign budget. Adjust the budget or ratio.');
   return result;
 }
-export function applyCommand(current: State, raw: unknown, now = new Date()): State {
+export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile']}): State {
   assert(raw && typeof raw === 'object', 'Invalid command');
   const cmd = raw as Record<string, any>;
   const s = structuredClone(current);
+  const companies = s.companies || COMPANIES;
+  const own = (h: Holder, c: Campaign) => actor ? h.accountId === actor.accountId && h.campaign === c.id : h.id === `self-${c.id}`;
+  const profile = actor?.profile || s.profile;
   const at = now.toISOString();
   const log = (title: string, detail: string, kind: Entry['kind'] = 'success') => { s.activity.unshift({ id: crypto.randomUUID(), at, title, detail, kind }); s.activity = s.activity.slice(0, 100); };
   const campaign = () => { const c = s.campaigns.find(c => c.id === cmd.campaignId); assert(c, 'Campaign not found'); return c; };
@@ -85,14 +91,14 @@ export function applyCommand(current: State, raw: unknown, now = new Date()): St
     }
     case 'verify': {
       const c = campaign(); beforeDeadline(c); assert(c.status === 'open', 'Only open campaigns accept registrations.');
-      assert(s.profile.kyc, 'Complete demo KYC first.');
-      assert(!s.holders.some(h => h.id === `self-${c.id}`), 'Duplicate registration is not allowed.');
+      assert(profile.kyc, 'Complete demo KYC first.');
+      assert(!s.holders.some(h => own(h,c)), 'Duplicate registration is not allowed.');
       const shares = numeric(cmd.shares, 'Shares', 1, 10000000); assert(Number.isInteger(shares), 'Shares must be whole numbers.');
       assert(shares >= c.minimum, `Below the minimum shares requirement (${c.minimum}  shares)`);
       assert(['broker', 'register', 'manual'].includes(cmd.source), 'Select a verification source.');
       const source = cmd.source === 'manual' ? 'Demo statement · manual review' : cmd.source === 'register' ? 'Demo share register' : 'Demo broker API';
-      s.holders.push({ id: `self-${c.id}`, campaign: c.id, name: s.profile.name, shares, status: cmd.source === 'manual' ? 'pending' : 'verified', allocation: 0, claimed: 0, source, asOf: c.snapshotDate });
-      log('Shareholder registered', `${s.profile.name} · ${c.name} · ${shares.toLocaleString()} shares (demo)`); break;
+      s.holders.push({ id: actor ? crypto.randomUUID() : `self-${c.id}`, ...(actor?{accountId:actor.accountId}:{}), campaign: c.id, name: profile.name, shares, status: cmd.source === 'manual' ? 'pending' : 'verified', allocation: 0, claimed: 0, source, asOf: c.snapshotDate });
+      log('Shareholder registered', `${profile.name} · ${c.name} · ${shares.toLocaleString()} shares (demo)`); break;
     }
     case 'review': {
       const h = s.holders.find(h => h.id === cmd.holderId); assert(h, 'Shareholder not found');
@@ -101,19 +107,19 @@ export function applyCommand(current: State, raw: unknown, now = new Date()): St
       log('Holdings review updated', `${h.name} · ${h.status === 'verified' ? 'Approved' : 'Rejected'} (demo review)`); break;
     }
     case 'wallet': {
-      const c = campaign(); const h = s.holders.find(h => h.id === `self-${c.id}`); assert(h, 'Register holdings first.');
+      const c = campaign(); const h = s.holders.find(h => own(h,c)); assert(h, 'Register holdings first.');
       assert(c.chains.includes(cmd.chain), 'This network is not supported by the campaign.'); assert(h.claimed === 0, 'The receiving network cannot change after a claim.');
       const wallet = label(cmd.wallet, 'Wallet address', 60); assert(validateWallet(cmd.chain, wallet), 'Invalid wallet address format');
       h.chain = cmd.chain; h.wallet = wallet; log('Demo wallet saved', `${CHAIN_NAMES[h.chain!]} · Address format checked only`); break;
     }
     case 'create': {
-      const input = cmd.input || {}; assert(COMPANIES.some(c => c.id === input.company), 'Select a company.');
+      const input = cmd.input || {}; assert(companies.some(c => c.id === input.company), 'Select a company.');
       assert(input.mode === 'ratio' || input.mode === 'pool', 'Invalid allocation method');
       assert(input.distribution === 'claim' || input.distribution === 'push', 'Invalid distribution method');
       assert(Array.isArray(input.chains) && input.chains.length > 0 && input.chains.every((c: string) => ['ETH','SOL','BNB'].includes(c)), 'Select at least one supported network.');
       assert(/^\d{4}-\d{2}-\d{2}$/.test(input.snapshotDate) && /^\d{4}-\d{2}-\d{2}$/.test(input.deadline), 'Enter valid dates.');
       assert(input.deadline >= input.snapshotDate && input.deadline >= at.slice(0, 10), 'The deadline cannot precede the record date or today.');
-      const company = COMPANIES.find(c => c.id === input.company)!;
+      const company = companies.find(c => c.id === input.company)!;
       s.campaigns.unshift({ id: crypto.randomUUID(), company: input.company, token: company.token, name: label(input.name, 'Campaign name', 70), description: label(input.description, 'Description', 400), status: 'draft', mode: input.mode, ratio: numeric(input.ratio, 'Tokens per share', 0.000001, 1000000), budget: numeric(input.budget, 'Budget', 1, 1000000000), minimum: numeric(input.minimum, 'Minimum shares', 1, 10000000), cap: numeric(input.cap, 'Token cap', 0.000001, 1000000000), release: numeric(input.release, 'Unlock percentage', 0, 100), chains: [...new Set(input.chains)] as Chain[], snapshotDate: input.snapshotDate, deadline: input.deadline, distribution: input.distribution });
       log('Campaign draft created', `${input.name} · Registration not yet open`); break;
     }
@@ -129,12 +135,12 @@ export function applyCommand(current: State, raw: unknown, now = new Date()): St
     }
     case 'pause': { const c = campaign(); assert(c.status === 'locked' || c.status === 'paused', 'Only locked campaigns can be paused or resumed.'); c.status = c.status === 'locked' ? 'paused' : 'locked'; log(c.status === 'paused' ? 'Distributions paused' : 'Distributions resumed', c.name, 'info'); break; }
     case 'release': { const c = campaign(); assert(c.status === 'locked' || c.status === 'paused', 'Lock the snapshot first.'); const value = numeric(cmd.percent, 'Unlock percentage', c.release, 100); c.release = value; log('Unlock updated', `${c.name} · Total unlocked: ${value}%`); break; }
-    case 'fund': { assert(COMPANIES.some(c => c.id === cmd.company) && ['ETH','SOL','BNB'].includes(cmd.chain), 'Invalid company or network'); const amount = numeric(cmd.amount, 'Funding amount', 1, 100000000); s.treasury[cmd.company][cmd.chain as Chain] += amount; log('Test funds added', `${cmd.amount.toLocaleString()} ${COMPANIES.find(c => c.id === cmd.company)!.token} · ${CHAIN_NAMES[cmd.chain as Chain]}`); break; }
+    case 'fund': { assert(companies.some(c => c.id === cmd.company) && ['ETH','SOL','BNB'].includes(cmd.chain), 'Invalid company or network'); const amount = numeric(cmd.amount, 'Funding amount', 1, 100000000); s.treasury[cmd.company][cmd.chain as Chain] += amount; log('Test funds added', `${cmd.amount.toLocaleString()} ${companies.find(c => c.id === cmd.company)!.token} · ${CHAIN_NAMES[cmd.chain as Chain]}`); break; }
     case 'claim':
     case 'distribute': {
       const c = campaign(); assert(c.status === 'locked', 'Lock the snapshot and ensure the campaign is not paused.'); beforeDeadline(c);
       assert(cmd.type === 'claim' ? c.distribution === 'claim' : c.distribution === 'push', 'This action is not supported by the distribution method.');
-      const rows = s.holders.filter(h => h.campaign === c.id && h.status === 'verified' && (cmd.type === 'distribute' || h.id === `self-${c.id}`));
+      const rows = s.holders.filter(h => h.campaign === c.id && h.status === 'verified' && (cmd.type === 'distribute' || own(h,c)));
       const ready = rows.filter(h => claimable(c, h) > 0 && h.wallet && h.chain && c.chains.includes(h.chain));
       assert(ready.length > 0, 'No claimable allocation or receiving wallet.');
       const totals = { ETH: 0, SOL: 0, BNB: 0 };

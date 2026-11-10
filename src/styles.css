@@ -399,3 +399,5 @@ dialog::backdrop { background: #152c2c66; }
   .auth-card { padding: 30px 24px; }
   .auth-page { padding: 32px 20px; }
 }
+.onboarding-actions{display:grid;gap:14px;margin-top:28px}.auth-back{margin-top:20px}.invitation-panel{margin-top:24px}.invitation-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px}.invitation-row+.invitation-row{border-top:1px solid var(--line)}.invitation-row h3{margin:0 0 8px}.invitation-row p{margin:0;color:var(--muted);overflow-wrap:anywhere}.team-invitations{margin-top:24px}.member-role-form,.row-actions{display:flex;align-items:center;gap:16px}.member-role-form select{min-width:120px}.team-invitations .panel-head{padding:24px}.auth-wrap>.text-btn{display:block;margin:20px auto 0}
+@media(max-width:600px){.invitation-row{align-items:stretch;flex-direction:column}.member-role-form{gap:10px}.row-actions{gap:12px}}

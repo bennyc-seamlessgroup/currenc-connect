@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 31 automated tests pass, including the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display and mobile menu behavior.
+- 42 automated tests cover the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display, account login, team roles, invitations, tenant isolation and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -36,3 +36,14 @@ Updated: 10 November 2026 (Hong Kong).
 - Sign-out was verified in the independent browser: it returned to an enabled email login form and hid the workspace. Chrome retained its own valid session after reload and still displayed the saved 25,001 test balance.
 - Live API checks return 401 without a verified account, 403 for cross-origin sign-out, and 400 for an invalid code. A forged caller identity and the previous anonymous cookie cannot unlock a workspace.
 - Login layout was checked at 390 × 844 with no horizontal overflow. Regression coverage also confirms that sign-out clears private dialogs and leaves the login button ready for a new sign-in. Live session responses explicitly return `Cache-Control: no-store`.
+
+## Company workspaces and permissions
+
+- Added company creation and first-account onboarding. A new company starts empty; new shareholders do not inherit sample investor records.
+- Server-authorized Owner, Admin, Operator and Viewer memberships. Company data is shared with company members, and filtered to each company. Shareholder responses contain only public campaigns and the authenticated shareholder's registrations, wallets and payouts.
+- Email-bound, seven-day invitation links with acceptance, revocation, member role changes, removal and transactional team audit. Invitations are shared using Copy link; no invitation email is sent automatically.
+- Owners alone appoint/manage admins; admins can manage operators/viewers. Owners cannot be removed/demoted and members cannot modify their own role. Removed members lose company access on their next request, and the UI clears company state/dialogs.
+- Legacy account workspaces migrate atomically into separate owned companies. The original JSON remains as an archive; balances, revisions, allocations and transactions are preserved. Old events without company IDs are kept in the original owner's personal activity so newly invited members cannot see other companies' history.
+- Localhost runs the same platform service with one explicit local developer identity. Existing `.local/workspace.sqlite` is retained.
+- Local desktop browser checks passed for company navigation, Team and invitation forms. Live deployment verification is pending for this update.
+- Business state remains revision-protected JSON per company. Company representation verification, enterprise SSO, dual approval, automatic invitation email, KYC/broker providers and on-chain transfers remain future work.

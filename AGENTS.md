@@ -4,6 +4,12 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 公司與股東權限已改用 `server/platform.mjs`：Owner／Admin／Operator／Viewer，股東只見自己的身份、登記、錢包與獎勵。公司角色必須由建立公司或接受電郵綁定邀請取得；前端切換不能授予權限。
+- `drizzle/0001_platform.sql` 是新增的帳戶、公司、成員、邀請與團隊稽核資料表；Neon 與 localhost SQLite 使用相同平台規則。業務狀態仍以每公司 JSON + revision 保存，並非已完成所有正式產品的資料模型。
+- 新帳戶沒有示範公司或他人的股東資料。舊個人示範空間會一次性、原子匯入獨立公司並保留原 JSON 作 archive；不要重新匯入、清除或覆蓋。舊活動沒有公司 ID，僅保留在原擁有者的個人活動，避免洩露予其他公司的成員。
+- 團隊邀請有效 7 天、可撤銷，必須以指定的已驗證電郵登入接受。現時使用 Copy link 由使用者自行分享，不會自動寄電郵；不要顯示為已寄出。Owner 才可任命／管理 Admin；Admin 只可管理 Operator／Viewer。Owner 不可被移除／降級，不可修改自己的成員權限。
+- 帳戶登入及公司權限是真實存取控制；KYC、持股、錢包及發放仍為 Sandbox，亦未驗證公司代表資格或實作雙人資金審批。
+
 - 保留 **localhost**：`npm run dev` → `http://localhost:5173`。使用者後續已明確要求修復 Vercel 部署，可將修正推送 GitHub 觸發 Vercel 部署；不要另建或部署 Sites。
 - 網站介面使用英文；中文將來才加入語言選項。對話語言仍沿用以下溝通規則。
 - 維持簡潔介面，移除宣傳大圖、口號及重複細字說明；操作相關說明放在對話框及 Quick guide。
@@ -99,7 +105,7 @@
 - 真實券商、Transfer Agent 或其他持股 API。
 - 真實錢包連接、簽名及錢包控制權驗證。
 - 智能合約部署、鏈上發放、Gas 支付、確認與鏈上對帳。
-- 正式多使用者企業權限、企業邀請或雙人審批。
+- 企業 SSO、公司代表資格驗證、自動寄出邀請電郵或雙人審批。基本公司成員角色及連結邀請見上方最新指示。
 - 自動週期快照、連續持有期驗證或自動線性解鎖。
 
 本輪需求以股東代幣獎勵與發放為核心；不要自動混入另一個 CURR Hub 專案的代幣交易、信用卡購買等需求。
@@ -116,10 +122,10 @@
 
 ## 6. 現有技術架構
 
-- Node.js **22.13 或以上**，目前沒有外部 npm 套件，不需要 `npm install`。
+- Node.js **22.13 或以上**；`npm ci` 安裝已鎖定的 Neon database／Auth SDK。
 - 前端：原生 JavaScript、HTML、CSS；保留既有架構，除非後續需求確有遷移理由。
 - 共用業務規則：TypeScript，建置時使用 Node 的型別移除功能。
-- Hosted 目標：Cloudflare Worker + D1。
+- Hosted：Vercel + Neon Postgres + Neon Auth；原 Cloudflare Worker + D1 示範保留但未部署。
 - 本機：Node HTTP server + SQLite，僅監聽 `127.0.0.1`。
 - 離線示範：單一 HTML，資料存在當前瀏覽器，不會跨裝置同步。
 - 目前資料以每位使用者一份 JSON 狀態及 revision 保存，並非正式產品資料庫模型。

@@ -1,21 +1,17 @@
 import {createServer} from 'node:http';
-import {DatabaseSync} from 'node:sqlite';
-import {readFile, mkdir} from 'node:fs/promises';
+import {mkdir} from 'node:fs/promises';
+import {createSqliteDatabase} from '../server/sqlite-database.mjs';
+import {createPlatform,PlatformError} from '../server/platform.mjs';
+import {seedState} from '../dist/server/domain.mjs';
 
 // The Worker API and domain rules are shared with local development.
 // SQLite is a local storage adapter, not a serverless deployment database.
 export async function createLocalServer({databasePath = '.local/workspace.sqlite'} = {}) {
   await mkdir(new URL('../.local/', import.meta.url), {recursive:true});
-  const db = new DatabaseSync(databasePath);
-  db.exec(await readFile(new URL('../drizzle/0000_workspace.sql', import.meta.url), 'utf8'));
-  const DB = {prepare(sql) {
-    let args = [];
-    return {
-      bind(...values) { args = values; return this; },
-      async first() { return db.prepare(sql).get(...args) || null; },
-      async run() { return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}}; },
-    };
-  }};
+  const DB=createSqliteDatabase(databasePath);
+  // Keep existing loopback data and give a new local database the familiar demo.
+  await DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind('local-demo',JSON.stringify(seedState())).run();
+  const platform=createPlatform(DB);
   const {default:worker} = await import('../dist/server/index.js');
   const server = createServer(async (req,res) => {
     try {
@@ -38,15 +34,30 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
         method, headers,
         ...(!['GET','HEAD'].includes(method)?{body:Buffer.concat(chunks)}:{}),
       });
-      const response = await worker.fetch(request, {DB});
+      let response;
+      if(new URL(request.url).pathname==='/api/workspace') {
+        if(!['GET','POST'].includes(method))response=Response.json({error:'Method not allowed'},{status:405});
+        else if(method==='POST'&&headers.get('Origin')!==new URL(request.url).origin)response=Response.json({error:'Cross-origin requests are not allowed.'},{status:403});
+        else {
+          const identity={accountId:'local-demo',user:{email:'demo@example.com',name:'Local developer',emailVerified:true}};
+          let selection={view:new URL(request.url).searchParams.get('view')||undefined,organizationId:new URL(request.url).searchParams.get('organization')||undefined};
+          if(method==='POST') {
+            if(Buffer.concat(chunks).length>12000)throw new PlatformError('Request too large',413);
+            let command;try{command=await request.json();}catch{throw new PlatformError('Invalid request',400);}
+            selection=await platform.execute(identity,command);
+          }
+          response=Response.json({...await platform.read(identity,selection),runtime:{environment:'Local sandbox',storage:'Local SQLite database',identity:'Local developer · company memberships'}},{headers:{'Cache-Control':'no-store'}});
+        }
+      }else response = await worker.fetch(request, {DB});
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch (error) {
+      if(error instanceof PlatformError){res.writeHead(error.status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:error.message}));return;}
       console.error(error);
       res.writeHead(500, {'Content-Type':'text/plain'});
       res.end('Unable to load the local workspace.');
     }
   });
-  server.on('close', () => db.close());
+  server.on('close', () => DB.close());
   return server;
 }

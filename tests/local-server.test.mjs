@@ -40,7 +40,7 @@ test('local workspace accepts localhost and loopback writes, persists across res
     port = await start();
     const saved = await (await fetch(`http://localhost:${port}/api/workspace`)).json();
     assert.equal(saved.state.profile.name,'Local Investor');
-    assert.equal(saved.revision,2);
+    assert.equal(saved.accountRevision,2);
   } finally {
     if (server?.listening) await stop();
     await rm(directory,{recursive:true,force:true});

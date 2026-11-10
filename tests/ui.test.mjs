@@ -5,13 +5,15 @@ import {readFileSync} from 'node:fs';
 import {stripTypeScriptTypes} from 'node:module';
 import vm from 'node:vm';
 import {seedState,applyCommand} from '../lib/domain.ts';
+import {createPlatform} from '../server/platform.mjs';
+import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const app=readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'');
-function harness({requiresLogin=false}={}){
+function harness({requiresLogin=false,platform=null,actor=null}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
- const context=vm.createContext({console,crypto,structuredClone,setTimeout:()=>1,clearTimeout(){},Blob,URL,
+ const context=vm.createContext({console,crypto,structuredClone,setTimeout:()=>1,clearTimeout(){},Blob,URL,URLSearchParams,
   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
   document:{querySelector:node,addEventListener:(k,v)=>handlers[k]=v,body:{classList:{add(){},remove(){}}}},
   window:{addEventListener(){},scrollTo(){}},
@@ -26,11 +28,12 @@ function harness({requiresLogin=false}={}){
     return {ok:true,status:200,json:async()=>({success:true})};
    }
    if(!signedIn)return {ok:false,status:401,json:async()=>({signIn:true,error:'Sign in'})};
+   if(platform){try{const url=new URL('https://test.local'+_url);let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined};if(options?.method==='POST')selection=await platform.execute(actor,JSON.parse(options.body));const data=await platform.read(actor,selection);return {ok:true,status:200,json:async()=>({...data,user:actor.user})};}catch(error){return {ok:false,status:error.status||500,json:async()=>({error:error.message})};}}
    try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,status:200,json:async()=>({state:stored,...(requiresLogin?{user:{name:'Account owner',email:'owner@example.com'}}:{})})};}catch(e){return{ok:false,status:422,json:async()=>({error:e.message})};}
   }
  });
  vm.runInContext(domain+'\n'+app+'\n globalThis.ui={load,render,join,createForm,detail,get state(){return state;}}',context);
- return{context,nodes,handlers,expire(){signedIn=false;},async start(){await context.ui.load();},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset}});},get stored(){return stored;}};
+ return{context,nodes,handlers,expire(){signedIn=false;},async start(selection){await context.ui.load(selection);},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset}});},get stored(){return stored;}};
 }
 test('UI: navigates all company pages, shareholder pages and settings without render errors',async()=>{
  const h=harness();await h.start();assert.match(h.nodes['#app'].innerHTML,/Overview/);
@@ -110,4 +113,55 @@ test('UI: expired account session closes the workspace rather than showing stale
  assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
  assert.equal(h.nodes['#dialog'].innerHTML,'');
+});
+
+const platformActor=id=>({accountId:id,user:{name:id,email:id+'@example.com',emailVerified:true}});
+function platformHarness(t,actor=platformActor('owner')){const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB);return {DB,platform,actor,...harness({platform,actor})};}
+
+test('UI: first-time shareholders onboard without receiving company permissions or sample investors',async t=>{
+ const h=platformHarness(t);await h.start();
+ assert.match(h.nodes['#app'].innerHTML,/Choose how to get started/);
+ await h.click('onboard-shareholder');
+ assert.match(h.nodes['#app'].innerHTML,/My rewards/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/data-mode="company"/);
+ await h.click('nav',{page:'settings'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/Reset workspace/);
+ await h.click('mode',{mode:'company'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/New campaign/);
+});
+
+test('UI: company owners create a workspace, manage invitations and safely render company names',async t=>{
+ const h=platformHarness(t);await h.start();await h.click('new-organization');
+ assert.match(h.nodes['#app'].innerHTML,/organization-form/);
+ await h.submit('organization-form',{name:'<svg onload=alert(1)>',ticker:'TST',token:'TEST'});
+ assert.match(h.nodes['#app'].innerHTML,/&lt;svg/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<svg onload/);
+ await h.click('nav',{page:'team'});assert.match(h.nodes['#app'].innerHTML,/Invite member/);
+ await h.click('invite-member');assert.match(h.nodes['#dialog'].innerHTML,/No email is sent automatically/);
+ await h.submit('invite-form',{email:'colleague@example.com',role:'viewer'});
+ assert.match(h.nodes['#app'].innerHTML,/colleague@example.com/);assert.match(h.nodes['#app'].innerHTML,/Copy link/);
+ const org=(await h.platform.read(h.actor)).context.organizationId;
+ const pending=(await h.platform.read(h.actor,{view:'company',organizationId:org})).team.invitations[0];
+ await h.click('revoke-invitation',{id:pending.id});assert.doesNotMatch(h.nodes['#app'].innerHTML,/Pending invitations/);
+});
+
+test('UI: viewers have no campaign, review, funding or team controls; operators retain campaign controls',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),owner=platformActor('owner');
+ await platform.read(owner);const selection=await platform.execute(owner,{type:'create-organization',name:'Company',ticker:'TST',token:'TEST'});
+ for(const role of ['viewer','operator']){
+  const actor=platformActor(role);await platform.read(actor);await platform.execute(owner,{type:'invite-member',organizationId:selection.organizationId,email:actor.user.email,role});
+  const invitation=(await platform.read(actor)).access.invitations[0];await platform.execute(actor,{type:'accept-invitation',invitationId:invitation.id});
+  const h=harness({platform,actor});await h.start(selection);
+  assert.doesNotMatch(h.nodes['#app'].innerHTML,/data-page="team"/);
+  if(role==='viewer')assert.doesNotMatch(h.nodes['#app'].innerHTML,/New campaign/);else assert.match(h.nodes['#app'].innerHTML,/New campaign/);
+  await h.click('nav',{page:'treasury'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/Add test funds/);
+ }
+});
+
+test('UI: revoked company membership clears private dialogs and falls back to the shareholder portal',async t=>{
+ const h=platformHarness(t);await h.start();await h.submit('organization-form',{name:'Private company',ticker:'TST',token:'TEST'});
+ const org=(await h.platform.read(h.actor)).context.organizationId,member=platformActor('member');await h.platform.read(member);
+ await h.platform.execute(h.actor,{type:'invite-member',organizationId:org,email:member.user.email,role:'admin'});
+ const invitation=(await h.platform.read(member)).access.invitations[0];await h.platform.execute(member,{type:'accept-invitation',invitationId:invitation.id});
+ const ui=harness({platform:h.platform,actor:member});await ui.start({view:'company',organizationId:org});await ui.click('create');assert.ok(ui.nodes['#dialog'].open);
+ await h.platform.execute(h.actor,{type:'remove-member',organizationId:org,memberId:member.accountId});await ui.start();
+ assert.equal(ui.nodes['#dialog'].open,false);assert.equal(ui.nodes['#dialog'].innerHTML,'');
+ assert.doesNotMatch(ui.nodes['#app'].innerHTML,/Private company|New campaign/);assert.match(ui.nodes['#app'].innerHTML,/Shareholder portal/);
 });
