@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS demo_workspaces (
+  id TEXT PRIMARY KEY NOT NULL,
+  data TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0
+);

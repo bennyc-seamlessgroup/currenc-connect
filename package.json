@@ -1,0 +1,17 @@
+{
+  "name": "currenc-connect",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node scripts/run.mjs dev",
+    "build": "node scripts/run.mjs build",
+    "test": "node scripts/run.mjs test",
+    "check": "node scripts/run.mjs check",
+    "start": "node scripts/run.mjs dev",
+    "build:offline": "node scripts/run.mjs offline"
+  }
+}
