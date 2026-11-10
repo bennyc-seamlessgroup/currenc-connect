@@ -2,7 +2,9 @@
 
 A shareholder rewards platform with company workspaces, teams and individual investor accounts. English is the current interface language; Chinese selection will be added later.
 
-Signed-out visitors first see a public service introduction explaining company token airdrops based on eligible shareholdings. **Get started** or **Sign in** opens the existing email-code flow; **Back to introduction** returns without losing an invitation's email context. Signed-in accounts continue to their workspace. The public page explicitly identifies verification and distributions as simulated in the current sandbox.
+Signed-out visitors first see a public service introduction explaining company token airdrops based on eligible shareholdings, an editorial hero image and searchable **Current campaigns**. Only active, listed companies with published, visible and unexpired campaigns appear. **View campaign** shows public terms; **Sign in to continue** remembers the selected campaign through verified login and first shareholder onboarding. **Back to introduction** returns without losing invitation context. Signed-in accounts continue to their workspace.
+
+The read-only `/api/public-campaigns` endpoint requires no account and creates no identity. Its explicit projection excludes shareholder records, wallets, transactions, treasury, contacts, files, membership and internal moderation notes. Changes to listing and registration controls are reflected without a public cache. A `?campaign=...` link is navigation context, never authorization. The page no longer displays global Sandbox/Preview labels; verification and distribution capabilities remain simulated and their action-level descriptions remain accurate. The new hero asset and exact generation prompt are recorded in `src/assets/landing/README.md`.
 
 ## Run locally
 

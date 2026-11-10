@@ -4,6 +4,7 @@ import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 import {createPlatform,PlatformError} from '../server/platform.mjs';
 import {seedState} from '../dist/server/domain.mjs';
 import {createDocumentHandler} from '../server/company-documents.mjs';
+import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 
 // The Worker API and domain rules are shared with local development.
 // SQLite is a local storage adapter, not a serverless deployment database.
@@ -39,7 +40,8 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
         ...(!['GET','HEAD'].includes(method)?{body:Buffer.concat(chunks)}:{}),
       });
       let response;
-      if(new URL(request.url).pathname==='/api/company-document')response=await documentHandler(request);
+      if(new URL(request.url).pathname==='/api/public-campaigns')response=method==='GET'?Response.json(await readPublicCampaigns(DB),{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):Response.json({error:'Method not allowed'},{status:405,headers:{Allow:'GET'}});
+      else if(new URL(request.url).pathname==='/api/company-document')response=await documentHandler(request);
       else if(new URL(request.url).pathname==='/api/workspace') {
         if(!['GET','POST'].includes(method))response=Response.json({error:'Method not allowed'},{status:405});
         else if(method==='POST'&&headers.get('Origin')!==new URL(request.url).origin)response=Response.json({error:'Cross-origin requests are not allowed.'},{status:403});
@@ -50,7 +52,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
             let command;try{command=await request.json();}catch{throw new PlatformError('Invalid request',400);}
             selection=await platform.execute(identity,command);
           }
-          response=Response.json({...await platform.read(identity,selection),runtime:{environment:'Local sandbox',storage:'Local SQLite database',identity:'Local developer · company memberships'}},{headers:{'Cache-Control':'no-store'}});
+          response=Response.json({...await platform.read(identity,selection),runtime:{environment:'Local development',storage:'Local SQLite database',identity:'Local developer · company memberships'}},{headers:{'Cache-Control':'no-store'}});
         }
       }else response = await worker.fetch(request, {DB});
       res.writeHead(response.status, Object.fromEntries(response.headers));

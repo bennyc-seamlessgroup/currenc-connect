@@ -35,12 +35,15 @@ function englishWorkspace(saved) {
 }
 let state = null;
 let workspaceRequest = 0;
-let currentUser = null; let authRequired = false; let authView = 'landing'; let authStep = 'email'; let authEmail = ''; let authError = ''; let authWorking = false; let resendAt = 0;
+let currentUser = null; let authRequired = true; let authView = 'landing'; let authStep = 'email'; let authEmail = ''; let authError = ''; let authWorking = false; let resendAt = 0;
 let access = null; let workspaceContext = null; let teamData = null; let onboardingCompany = false;
 let companyApplication=null,platformData=null,accountSuspended=false,platformCompanyId=null,platformListPage=1,platformSearch='',platformAccountFilter='current',accountRemoved=false;
 const invitedEmail=new URLSearchParams(window.location?.search||'').get('email')||'';if(invitedEmail.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail))authEmail=invitedEmail;
 let requestedInvitation = new URLSearchParams(window.location?.search||'').get('invitation');
-let workspaceRuntime = {environment:'Local sandbox',storage:'Local SQLite database',identity:'Shared demo workspace'};
+let publicCampaigns=null,publicCampaignError='',publicCampaignSearch='',publicCampaignRequest=0;
+const campaignParameter=new URLSearchParams(window.location?.search||'').get('campaign');
+let requestedCampaign=campaignParameter&&campaignParameter.length<=200?campaignParameter:null;
+let workspaceRuntime = {environment:'Local development',storage:'Local SQLite database',identity:'Shared demo workspace'};
 let mode = localStorage.getItem('cc-mode') || 'company';
 const rememberedOrganization = localStorage.getItem('cc-organization');
 let companyId = rememberedOrganization || localStorage.getItem('cc-company') || 'curr';
@@ -71,7 +74,7 @@ function receive(data) {
 async function load(selection=null) {
  const request=++workspaceRequest;
  try {
-  const selected=selection||(access?{view:mode,organizationId:mode==='company'?companyId:mode==='platform'?platformCompanyId:undefined,...(mode==='platform'?{page:platformListPage,search:platformSearch}:{})}:mode==='platform'?{view:'platform'}:mode==='shareholder'?{view:'shareholder'}:rememberedOrganization?{view:'company',organizationId:rememberedOrganization}:null);
+  const selected=selection||(requestedCampaign?{view:'shareholder'}:null)||(access?{view:mode,organizationId:mode==='company'?companyId:mode==='platform'?platformCompanyId:undefined,...(mode==='platform'?{page:platformListPage,search:platformSearch}:{})}:mode==='platform'?{view:'platform'}:mode==='shareholder'?{view:'shareholder'}:rememberedOrganization?{view:'company',organizationId:rememberedOrganization}:null);
   const query=selected?'?'+new URLSearchParams({view:selected.view,...(selected.organizationId?{organization:selected.organizationId}:{}),...(selected.view==='platform'?{page:String(selected.page||1),search:selected.search||'',accounts:selected.accountFilter||platformAccountFilter}:{})}):'';
   const r=await fetch('/api/workspace'+query);const data=await r.json();if(request!==workspaceRequest)return;
   if(r.status===401||(r.status===403&&data.signIn)){lockWorkspace();error='';render();return;}
@@ -79,7 +82,7 @@ async function load(selection=null) {
   if(r.status===403&&['company','platform'].includes(selected?.view)){state=null;teamData=null;companyApplication=null;platformData=null;navOpen=false;page='overview';closeModal();$('#dialog').innerHTML='';await load({view:'shareholder'});toast(data.error,true);return;}
   if(!r.ok)throw Error(data.error);
   receive(data);
- }catch(e){error=e.message;}render();
+ }catch(e){error=e.message;}render();if(requestedCampaign&&access?.onboarded)await continueRequestedCampaign();
 }
 function loginPage() {
  if(authView==='landing')return landingPage();
@@ -97,7 +100,7 @@ async function sendCode(email) {
 }
 async function verifyCode(code) {
  if(authWorking)return;authWorking=true;authError='';render();
- try {await authRequest('verify-code',{email:authEmail,code});authStep='email';authEmail='';await load();}
+ try {await authRequest('verify-code',{email:authEmail,code});authStep='email';authEmail='';await load(requestedCampaign?{view:'shareholder'}:null);}
  catch(e){authError=e.message;}finally{authWorking=false;render();if(authRequired)$(authStep==='code'?'#login-code':'#login-email')?.focus();}
 }
 async function signOut() {
@@ -124,8 +127,8 @@ function shell() {
  <nav>${nav.map(([id,ico,label])=>`<button class="nav-item ${page===id?'active':''}" data-action="nav" data-page="${id}" ${page===id?'aria-current="page"':''}>${icon(ico)}<span>${label}</span>${id==='shareholders'&&pending?`<b>${pending}</b>`:''}</button>`).join('')}</nav>
  <div class="sidebar-bottom">${access?.platformRole&&mode!=='platform'?`<button class="nav-item ${mode==='platform'?'active':''}" data-action="mode" data-mode="platform">${icon('shield')}<span>Platform console</span></button>`:''}<button class="nav-item" data-action="help">${icon('help')}<span>Quick guide</span></button>${mode!=='platform'?`<button class="nav-item ${page==='settings'?'active':''}" data-action="nav" data-page="settings">${icon('settings')}<span>Settings</span></button>`:''}<div class="sidebar-user"><span class="avatar small">${esc((currentUser?.name||currentUser?.email||'D').slice(0,1).toUpperCase())}</span><strong title="${esc(currentUser?.email||'')}">${esc(currentUser?.name||currentUser?.email||'Local demo')}</strong>${currentUser?`<button class="icon-btn" data-action="sign-out" aria-label="Sign out">${icon('logout')}</button>`:''}</div></div></aside>
  ${navOpen?'<button class="menu-scrim" data-action="menu" aria-label="Close navigation"></button>':''}
- <div class="app-body"><header class="topbar"><div class="topbar-context"><button class="icon-btn mobile-menu" data-action="menu" aria-label="Toggle navigation" aria-expanded="${navOpen}">${icon('menu')}</button><span class="workspace-name">${mode==='company'?esc(company().name):mode==='platform'?'Platform console':'Shareholder portal'}</span>${mode==='company'?`<select id="mobile-company-select" class="mobile-company-select" aria-label="Select company">${managedCompanies().map(c=>`<option value="${c.id}" ${c.id===companyId?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}</div><div class="topbar-right"><span class="sandbox-tag">Sandbox</span><div class="role-toggle" role="group" aria-label="Workspace role">${!access||access.organizations.length?`<button data-action="mode" data-mode="company" aria-pressed="${mode==='company'}" class="${mode==='company'?'selected':''}">Company</button>`:''}<button data-action="mode" data-mode="shareholder" aria-pressed="${mode==='shareholder'}" class="${mode==='shareholder'?'selected':''}">Shareholder</button></div><button class="icon-btn activity-button" data-action="activity" aria-label="Recent activity">${icon('bell')}</button></div></header>
- <main id="main">${!state ? error ? `<div class="panel load-error">${empty('Unable to load workspace',esc(error),'refresh')}${btn('Try again','reload','primary')}</div>` : `<div class="loading"><span class="spinner"></span>Loading workspace…</div>` : `${portalNotice()}${companyApprovalNotice()}${content()}`}</main><footer><span>© ${new Date().getFullYear()} Currenc Connect</span><span>Sandbox · no on-chain transfers</span></footer></div>`;
+ <div class="app-body"><header class="topbar"><div class="topbar-context"><button class="icon-btn mobile-menu" data-action="menu" aria-label="Toggle navigation" aria-expanded="${navOpen}">${icon('menu')}</button><span class="workspace-name">${mode==='company'?esc(company().name):mode==='platform'?'Platform console':'Shareholder portal'}</span>${mode==='company'?`<select id="mobile-company-select" class="mobile-company-select" aria-label="Select company">${managedCompanies().map(c=>`<option value="${c.id}" ${c.id===companyId?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`:''}</div><div class="topbar-right"><div class="role-toggle" role="group" aria-label="Workspace role">${!access||access.organizations.length?`<button data-action="mode" data-mode="company" aria-pressed="${mode==='company'}" class="${mode==='company'?'selected':''}">Company</button>`:''}<button data-action="mode" data-mode="shareholder" aria-pressed="${mode==='shareholder'}" class="${mode==='shareholder'?'selected':''}">Shareholder</button></div><button class="icon-btn activity-button" data-action="activity" aria-label="Recent activity">${icon('bell')}</button></div></header>
+ <main id="main">${!state ? error ? `<div class="panel load-error">${empty('Unable to load workspace',esc(error),'refresh')}${btn('Try again','reload','primary')}</div>` : `<div class="loading"><span class="spinner"></span>Loading workspace…</div>` : `${portalNotice()}${companyApprovalNotice()}${content()}`}</main><footer><span>© ${new Date().getFullYear()} Currenc Connect</span></footer></div>`;
 }
 function title(heading, actions='') { return `<div class="page-heading"><h1>${heading}</h1><div class="heading-actions">${actions}</div></div>`; }
 function content() {
@@ -212,13 +215,14 @@ function csvDownload(name, header, rows) { const cell=v=>{let s=String(v??'');if
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-action]'); if(!b||busy||authWorking)return; const a=b.dataset.action,id=b.dataset.id,c=state?.campaigns.find(c=>c.id===id); e.preventDefault();
  if(a==='auth-start'){authView='sign-in';authStep='email';authError='';render();window.scrollTo({top:0});$('#login-email')?.focus();return;}
- if(a==='auth-home'){authView='landing';authStep='email';authError='';render();window.scrollTo({top:0});$('#landing-title')?.focus();return;}
+ if(a==='auth-home'){authView='landing';authStep='email';authError='';render();window.scrollTo({top:0});$('#landing-title')?.focus();await loadPublicCampaigns();return;}
  if(a==='auth-back'){authStep='email';authError='';render();$('#login-email')?.focus();return;}
  if(a==='resend-code'){if(Date.now()>=resendAt)await sendCode(authEmail);return;}
  if(a==='sign-out'){await signOut();return;}
+ if(await publicCampaignClick(a,b.dataset))return;
  if(await portalClick(a,b.dataset))return;
  if(await governanceClick(a,b.dataset))return;
- if(a==='onboard-shareholder'){await command({type:'onboard'},'');return;}
+ if(a==='onboard-shareholder'){if(await command({type:'onboard'},''))await continueRequestedCampaign();return;}
  if(a==='accept-invitation'){await command({type:'accept-invitation',invitationId:id},'Company invitation accepted');page='overview';render();return;}
  if(a==='invite-member'){
   if(!can('team'))return;
@@ -244,7 +248,7 @@ document.addEventListener('click',async e=>{
  if(a==='join'){join(c);return;}
  if(a==='company-rewards'){const cs=state.campaigns.filter(c=>c.company===b.dataset.company&&!['draft','closed','archived','deleted'].includes(c.status));openModal(`${esc(companyList().find(co=>co.id===b.dataset.company).name)} rewards`,cs.map(c=>`<div class="company-campaign"><div>${badge(c.status)}<h3>${esc(c.name)}</h3><p class="muted">${esc(c.description)}</p><small>${c.mode==='ratio'?`Per 1,000 shares: ${num(c.ratio*1000)} ${c.token}`:`Pool: ${num(c.budget)} ${c.token}`} · Minimum ${num(c.minimum)} shares</small></div>${btn(!!ownHolder(c.id)?'View reward':'Register','join','primary',`data-id="${c.id}"`)}</div>`).join(''));return;}
  if(a==='activity'){openModal(mode==='platform'?'Platform activity':'Recent activity',mode==='platform'?platformAudit(platformData?.audit||[]):activityList(state.activity.slice(0,15)),true);return;}
- if(a==='help'){openModal('Quick guide',`<div class="guide">${mode==='platform'?'<ol><li>Add companies under Companies and enter their information. Company registration is handled by the platform team.</li><li>Control company listings, campaign visibility and account access. Every decision is recorded in Audit log.</li><li>Activating a company enables sandbox operations; listing controls its visibility in the portal.</li></ol>':access?'<ol><li><strong>Shareholders</strong>Browse published campaigns, complete demo identity and register your own holdings. Add a demo receiving wallet and claim when the company unlocks rewards.</li><li><strong>Company owners and admins</strong>Manage campaigns, reviews, test funds and team access. Invite a colleague by email and share the invitation link.</li><li><strong>Operators</strong>Manage campaigns and reviews. <strong>Viewers</strong>have read-only company access.</li><li>Company access is assigned by the platform team or an accepted invitation. Edit draft campaigns before opening registration; published reward rules stay locked. Deleted drafts can be restored; archive only after rewards are settled.</li></ol>':'<p>Both roles share this local demo workspace.</p>'}${notice('KYC, holdings and transfers are simulated. Login and company permissions are real access controls.')}</div>`);return;}
+ if(a==='help'){openModal('Quick guide',`<div class="guide">${mode==='platform'?'<ol><li>Add companies under Companies and enter their information. Company registration is handled by the platform team.</li><li>Control company listings, campaign visibility and account access. Every decision is recorded in Audit log.</li><li>Activating a company enables company operations; listing controls its visibility in the portal.</li></ol>':access?'<ol><li><strong>Shareholders</strong>Browse published campaigns, complete demo identity and register your own holdings. Add a demo receiving wallet and claim when the company unlocks rewards.</li><li><strong>Company owners and admins</strong>Manage campaigns, reviews, test funds and team access. Invite a colleague by email and share the invitation link.</li><li><strong>Operators</strong>Manage campaigns and reviews. <strong>Viewers</strong>have read-only company access.</li><li>Company access is assigned by the platform team or an accepted invitation. Edit draft campaigns before opening registration; published reward rules stay locked. Deleted drafts can be restored; archive only after rewards are settled.</li></ol>':'<p>Both roles share this local demo workspace.</p>'}${notice('KYC, holdings and transfers are simulated. Login and company permissions are real access controls.')}</div>`);return;}
  if(a==='open'||a==='pause'){if(await command({type:a,campaignId:id})){if(page==='campaigns'){filter=a==='open'?'open':c.status==='locked'?'paused':'locked';render();}}return;}
  if(a==='snapshot-preview'){
   const hs=state.holders.filter(h=>h.campaign===id);let rows;try{if(hs.some(h=>h.status==='pending'))throw Error('Review all pending applications in Shareholders first.');rows=allocate(c,hs);}catch(err){toast(err.message,true);return;}
@@ -284,7 +288,7 @@ document.addEventListener('change',async e=>{
  if(e.target.id==='wallet-chain')$('#wallet-address').value=e.target.value==='SOL'?'11111111111111111111111111111111':'0x4444444444444444444444444444444444444444';
  if(e.target.id==='allocation-mode'){const f=e.target.closest('form');f.elements.ratio.disabled=e.target.value==='pool';if(e.target.value==='pool')f.elements.ratio.value='0.1';}
 });
-document.addEventListener('input',e=>{if(e.target.id==='search'){search=e.target.value;const start=e.target.selectionStart;render();$('#search').focus();$('#search').setSelectionRange(start,start);}});
+document.addEventListener('input',e=>{if(e.target.id==='public-campaign-search'){publicCampaignSearch=e.target.value;$('#public-campaign-results').innerHTML=publicCampaignCards();return;}if(e.target.id==='search'){search=e.target.value;const start=e.target.selectionStart;render();$('#search').focus();$('#search').setSelectionRange(start,start);}});
 $('#dialog').addEventListener('click', e=>{if(e.target===$('#dialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal();}});
-window.addEventListener('focus',()=>{if(state&&!busy&&!$('#dialog').open)load();});
-render();load();
+window.addEventListener('focus',()=>{if(state&&!busy&&!$('#dialog').open)load();else if(authRequired&&authView==='landing')loadPublicCampaigns();});
+render();load();loadPublicCampaigns();

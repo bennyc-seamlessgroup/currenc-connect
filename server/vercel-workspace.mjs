@@ -7,7 +7,7 @@ import {createDocumentHandler} from './company-documents.mjs';
 
 const legacyCookieName='__Host-cc-session';
 const json=(data,status)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
-const runtime={environment:'Vercel sandbox',storage:'Cloud database',identity:'Company memberships & personal shareholder account'};
+const runtime={environment:'Vercel cloud',storage:'Cloud database',identity:'Company memberships & personal shareholder account'};
 export const governanceOptions=env=>({bootstrapOwner:env.PLATFORM_BOOTSTRAP_OWNER_EMAIL?{email:env.PLATFORM_BOOTSTRAP_OWNER_EMAIL,issuer:(env.NEON_AUTH_BASE_URL||DEFAULT_AUTH_BASE_URL).replace(/\/$/,'')}:undefined});
 export const accountWorkspaceId=(issuer,id)=>'account:'+createHash('sha256').update(issuer+'\0'+id).digest('hex');
 export function legacyWorkspaceId(cookieHeader='') {

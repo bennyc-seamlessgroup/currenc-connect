@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 72 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, public introduction and invitation context, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
+- 77 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, public campaign privacy/search/login continuity, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -43,6 +43,14 @@ Updated: 10 November 2026 (Hong Kong).
 - Added `src/landing-ui.js`, responsive layouts and public-page metadata. The sign-in form retains invitation-email context, resend/back/error handling and keyboard focus. Sign-out returns to the introduction; expired workspace sessions clear private state and return to sign-in. Initial session loading no longer shows placeholder company navigation or a demo identity.
 - All 72 tests, build/asset checks and whitespace checks pass. Native-browser local QA passed for introduction → email → invalid code/retry → successful login → sign-out, plus invitation navigation coverage in the UI regression suite. Local browser OTP delivery is simulated in an isolated in-memory preview; no test emails are sent or production identities created. Desktop and 390 × 844 introduction/sign-in views have no page-level horizontal overflow.
 - Production source `3295df7` is Ready (deployment `Cyw6Yffc23hEkk7pG76UrinLdcYK`). The canonical site was verified signed out: service introduction, Get started → email form, return to introduction, desktop and 390px layout, and no browser errors. Existing managed sign-in endpoints and permissions are unchanged; no live OTP was requested in this presentation update. The isolated preview server was stopped; the primary localhost server remains running with the user's original database.
+
+## Public campaigns and hero imagery
+
+- Latest design decision: remove global Sandbox/Preview labels from the introduction, sign-in, workspace header/footer and runtime environment labels. Operational KYC, wallet and payout descriptions remain accurate; no real verification or blockchain integration has been added.
+- Replaced the right-side diagram with a generated editorial still-life image of certificates and tokens, optimized as a local JPEG and served by Vercel and the local/Worker asset build. The original prompt is recorded with the asset; no external image service is used at page load.
+- Added searchable Current campaigns with public detail dialogs. The anonymous read-only endpoint includes only active/listed companies and published/visible campaigns whose claim deadline has not passed. Public terms are allowlisted; private shareholders, wallets, funds, legal/contact details, files, team data and internal notes never enter the response. No identity is created. Responses are no-store and mutations return 405.
+- Selection persists through `?campaign=` and verified sign-in into the shareholder view, including first-time onboarding. Hidden or removed campaigns are rechecked against the authenticated response; URL parameters cannot grant access. The introduction and discovery load independently of the initial session check.
+- All 77 tests, build and asset checks pass. Isolated native-browser QA verified search, public terms, selected-campaign sign-in, first onboarding, returning to the same campaign and sign-out, using simulated local OTP delivery with no outgoing email. Desktop and 390px views have no horizontal overflow; the hero image loaded at its expected resolution and the flow produced no browser errors.
 
 ## Company workspaces and permissions
 

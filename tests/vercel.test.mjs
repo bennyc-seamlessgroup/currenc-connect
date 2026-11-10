@@ -6,6 +6,7 @@ import worker from '../dist/server/index.js';
 import entry from '../api/workspace.js';
 import authEntry from '../api/auth.js';
 import documentEntry from '../api/company-document.js';
+import publicEntry from '../api/public-campaigns.js';
 import {seedState} from '../lib/domain.ts';
 import {accountWorkspaceId,legacyWorkspaceId,createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
 import {createNeonDatabase} from '../server/neon-database.mjs';
@@ -43,8 +44,12 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(JSON.parse(readFileSync('package.json','utf8')).engines.node,'22.x');
   assert.equal(typeof entry.fetch,'function');assert.equal(typeof authEntry.fetch,'function');
   assert.equal(typeof documentEntry.fetch,'function');
+  assert.equal(typeof publicEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
-  assert.deepEqual(files,['app.js','favicon.svg','index.html','styles.css']);
+  assert.deepEqual(files,['app.js','favicon.svg','images','index.html','styles.css']);
+  const hero=await worker.fetch(new Request(origin+'/images/shareholder-rewards.jpg'),{});
+  assert.equal(hero.headers.get('Content-Type'),'image/jpeg');
+  assert.deepEqual(Buffer.from(await hero.arrayBuffer()),readFileSync('src/assets/landing/shareholder-rewards.jpg'));
   for(const [path,file]of [['/','index.html'],['/app.js','app.js'],['/styles.css','styles.css']]) {
     const response=await worker.fetch(new Request(origin+path),{});
     assert.equal(await response.text(),readFileSync(`${config.outputDirectory}/${file}`,'utf8'));

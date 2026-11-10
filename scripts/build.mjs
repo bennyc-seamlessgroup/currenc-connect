@@ -1,4 +1,5 @@
 import {readFile,writeFile,mkdir,rm,cp} from 'node:fs/promises';
+import {dirname} from 'node:path';
 import {stripTypeScriptTypes} from 'node:module';
 const domain=stripTypeScriptTypes(await readFile('lib/domain.ts','utf8'));
 const chainLogos=Object.fromEntries(await Promise.all([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(async([chain,file])=>[chain,'data:image/svg+xml;base64,'+(await readFile(`src/assets/chains/${file}.svg`)).toString('base64')])));
@@ -7,12 +8,15 @@ const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
  '/styles.css':{type:'text/css; charset=utf-8',body:await readFile('src/styles.css','utf8')},
  '/app.js':{type:'text/javascript; charset=utf-8',body:domain+'\n'+app},
+ '/images/shareholder-rewards.jpg':{type:'image/jpeg',base64:true,body:(await readFile('src/assets/landing/shareholder-rewards.jpg')).toString('base64')},
  '/favicon.svg':{type:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#101f29"/><g stroke="#d8ec90" stroke-width="3" fill="none" stroke-linecap="round"><path d="M27 12a12 12 0 1 0 0 24 M34 12a12 12 0 1 0 0 24 M17 24h21"/></g></svg>'}
 };
 await rm('dist',{recursive:true,force:true});await mkdir('dist/server',{recursive:true});await mkdir('dist/client',{recursive:true});await mkdir('dist/.openai',{recursive:true});
 // Vercel serves only browser assets from this directory, never the Worker source.
 for (const [path,asset] of Object.entries(assets)) {
- await writeFile(`dist/client/${path==='/'?'index.html':path.slice(1)}`,asset.body);
+ const target=`dist/client/${path==='/'?'index.html':path.slice(1)}`;
+ await mkdir(dirname(target),{recursive:true});
+ await writeFile(target,asset.base64?Buffer.from(asset.body,'base64'):asset.body);
 }
 const worker=domain+'\nconst ASSETS='+JSON.stringify(assets)+';\n'+await readFile('src/worker.js','utf8');
 await writeFile('dist/server/index.js',worker);await cp('.openai/hosting.json','dist/.openai/hosting.json');
@@ -30,11 +34,11 @@ async function offlineFetch(_url, options) {
     try { saved=applyCommand(saved,JSON.parse(options.body));localStorage.setItem(OFFLINE_KEY,JSON.stringify(saved)); }
     catch(error) { return {ok:false,json:async()=>({error:error.message})}; }
   } else localStorage.setItem(OFFLINE_KEY,JSON.stringify(saved));
-  return {ok:true,json:async()=>({state:saved,revision:0,runtime:{environment:'Offline sandbox',storage:'This browser only',identity:'Shared demo workspace'}})};
+  return {ok:true,json:async()=>({state:saved,revision:0,runtime:{environment:'Offline demonstration',storage:'This browser only',identity:'Shared demo workspace'}})};
 }
 `;
 const offlineApp=app.replaceAll("fetch('/api/workspace'","offlineFetch('/api/workspace'")
- .replace('<span class="sandbox-tag">Sandbox</span>', '<span class="sandbox-tag">Offline sandbox</span>')
+ .replaceAll('/images/shareholder-rewards.jpg','data:image/jpeg;base64,'+assets['/images/shareholder-rewards.jpg'].body)
   .replace('this demo workspace', 'this offline demo workspace')
  .replace('Data is saved in your workspace database.', 'Data is saved in this browser only.');
 let offline=assets['/'].body.replace('<link rel="stylesheet" href="/styles.css">','<style>'+assets['/styles.css'].body+'</style>')

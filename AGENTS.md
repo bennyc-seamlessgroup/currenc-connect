@@ -4,6 +4,8 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 使用者最新要求移除網站 Sandbox／Preview 展示文字及標籤，並加入新生成主圖及登入前公開活動。不要重新加入全域示範標籤；KYC／持股／錢包／發放的實際功能未變，保留動作內準確說明，不可把模擬說成真實驗證或鏈上交易。`src/assets/landing/shareholder-rewards.jpg` 為已優化本機圖檔，生成描述見同目錄 README。
+- 新增 `/api/public-campaigns`／`server/public-campaigns.mjs`：匿名唯讀、no-store、無帳戶建立，只回傳 active + listed 公司的 published + visible + 未過領取期限活動。嚴格 allowlist 公司品牌及活動條款；不能回傳整份 workspace、股東／錢包／資金／交易／聯絡／文件／成員／內部備註。列表與詳情可搜尋，`?campaign=` 只作導覽，登入及首次 onboarding 後接回活動並由受保護回應再檢查權限。77 項測試及桌面／390px 本機完整銜接檢查通過，正式資料未重設。
 - 網站未登入入口已改為 `src/landing-ui.js` 的英文服務介紹，說明按真實持股及公司活動規則獲配代幣空投；Get started／Sign in 才開啟現有 OTP 登入。保持簡潔、沒有虛構客戶／回報／持股數字，且明示 Sandbox 驗證及發放仍為模擬。邀請電郵參數保留，登出回介紹頁，過期 session 清空私人資料再要求登入。72 項測試及桌面／390px 本機瀏覽器檢查通過；本機 QA OTP 是測試替身，不能聲稱重新驗證真實電郵投遞。
 - 最新來源 `92f9407` 已在 Vercel Ready，71 項測試、建置及檢查通過。線上已實測合成帳戶邀請建立／撤銷，以及私密 Portal Review QA 公司中的活動建立／編輯／刪除／還原／開放／封存及重載保存；該測試活動保持 Archived，沒有登記、資金或轉帳。已核對公司成員移除入口、設定說明、股東首頁及三條鏈圖示，原有帳戶和 Viewer 權限保留。獨立測試程式停止，主 localhost:5173 保留運行。
 - 新增 `drizzle/0003_account_lifecycle.sql`：平台 Accounts 可新增登入邀請、撤銷邀請、Remove portal access／Removed → Restore access。身份必須由驗證電郵首次登入建立；不能直接製造 Neon 用戶或自動授予平台／公司權限。邀請七天有效，只 Copy link，不會自動寄信；一般股東仍可自行註冊帳戶。移除是可還原的 `cc_account_controls.archived=1`，不刪除身份／個人／公司／交易資料；所有權限檢查須包含 archived，且撤銷同電郵待接受公司邀請。平台管理員須先撤銷平台角色，Owner／自身不可移除。

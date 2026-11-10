@@ -7,10 +7,11 @@ import vm from 'node:vm';
 import {seedState,applyCommand} from '../lib/domain.ts';
 import {createPlatform} from '../server/platform.mjs';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
+import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
 const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8');
-function harness({requiresLogin=false,platform=null,actor=null,search=''}={}){
+function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
@@ -20,6 +21,7 @@ function harness({requiresLogin=false,platform=null,actor=null,search=''}={}){
   window:{location:{search,href:'https://test.local/'+search},addEventListener(){},scrollTo(){}},
   FormData:class{constructor(f){this.entries=Object.entries(f.fields||{});}*[Symbol.iterator](){yield* this.entries;}getAll(k){return this.entries.filter(([a])=>a===k).map(([,v])=>v);}},
   fetch:async(_url,options)=>{
+   if(_url==='/api/public-campaigns')return {ok:true,status:200,json:async()=>publicDatabase?readPublicCampaigns(publicDatabase):{campaigns:publicRows}};
    if(_url.startsWith('/api/auth')) {
     const action=new URL('https://test.local'+_url).searchParams.get('action');
     const body=JSON.parse(options.body);
@@ -33,12 +35,12 @@ function harness({requiresLogin=false,platform=null,actor=null,search=''}={}){
    try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,status:200,json:async()=>({state:stored,...(requiresLogin?{user:{name:'Account owner',email:'owner@example.com'}}:{})})};}catch(e){return{ok:false,status:422,json:async()=>({error:e.message})};}
   }
  });
- vm.runInContext(domain+'\n'+app+'\n globalThis.ui={load,render,join,createForm,detail,get state(){return state;}}',context);
- return{context,nodes,handlers,expire(){signedIn=false;},async start(selection){await context.ui.load(selection);},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={},submitter={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset},submitter});},get stored(){return stored;}};
+ vm.runInContext(domain+'\n'+app+'\n globalThis.ui={load,loadPublicCampaigns,render,join,createForm,detail,get state(){return state;}}',context);
+ return{context,nodes,handlers,expire(){signedIn=false;},async start(selection){await context.ui.load(selection);await context.ui.loadPublicCampaigns();},async click(action,dataset={}){await handlers.click({preventDefault(){},target:{closest(){return {dataset:{action,...dataset}};}}});},async submit(id,fields={},dataset={},submitter={}){await handlers.submit({preventDefault(){},target:{id,fields,dataset},submitter});},get stored(){return stored;}};
 }
 test('UI: navigates all company pages, shareholder pages and settings without render errors',async()=>{
  const h=harness();await h.start();assert.match(h.nodes['#app'].innerHTML,/Overview/);
- for(const page of ['campaigns','shareholders','treasury','reports','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Sandbox'));assert.doesNotMatch(h.nodes['#app'].innerHTML, /[\u3400-\u9fff]/);}
+ for(const page of ['campaigns','shareholders','treasury','reports','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Currenc Connect'));assert.doesNotMatch(h.nodes['#app'].innerHTML,/sandbox/i);assert.doesNotMatch(h.nodes['#app'].innerHTML, /[\u3400-\u9fff]/);}
  await h.click('mode',{mode:'shareholder'});assert.match(h.nodes['#app'].innerHTML,/Companies/);
  for(const page of ['rewards','profile','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.length>3000);}
 });
@@ -128,7 +130,8 @@ test('UI: public introduction explains share-based airdrops and preserves invita
  assert.match(landing,/real shares you hold/);
  assert.match(landing,/each campaign’s rules determine your token allocation/);
  assert.match(landing,/id="main"/);assert.match(landing,/id="how-it-works"/);
- assert.match(landing,/verification and token distributions are simulated/);
+ assert.doesNotMatch(landing,/sandbox|preview|airdrop-illustration/i);
+ assert.match(landing,/images\/shareholder-rewards.jpg/);assert.match(landing,/Current campaigns/);
  assert.doesNotMatch(landing,/demo@example.com|Company workspace|login-email-form/);
  await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
  await h.submit('login-email-form',{email:'invited@example.com'});
@@ -141,12 +144,34 @@ test('UI: public introduction explains share-based airdrops and preserves invita
 });
 
 const platformActor=id=>({accountId:id,issuer:'test',user:{name:id,email:id+'@example.com',emailVerified:true}});
-function platformHarness(t,actor=platformActor('owner')){const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB);return {DB,platform,actor,...harness({platform,actor})};}
+function platformHarness(t,actor=platformActor('owner')){const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB);return {DB,platform,actor,...harness({platform,actor,publicDatabase:DB})};}
 async function staffCompany(DB,platform,actor,name='Company'){
  await platform.read(actor);await DB.query("INSERT INTO cc_platform_admins (account_id,role,created_at) VALUES ($1,'admin',$2)",[actor.accountId,new Date().toISOString()]);
  const selected=await platform.execute(actor,{type:'platform-create-company',name,ticker:'TST',token:'TEST'});
  await DB.query("DELETE FROM cc_platform_admins WHERE account_id=$1 AND role='admin'",[actor.accountId]);return {view:'company',organizationId:selected.organizationId};
 }
+
+test('UI: visitors find a public campaign, search safely and resume it after verified login and first onboarding',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),owner=platformActor('owner');
+ const selected=await staffCompany(DB,platform,owner,'<svg onload=alert(1)>');
+ await DB.query("UPDATE cc_company_status SET status='approved',visible=1 WHERE organization_id=$1",[selected.organizationId]);
+ const today=new Date().toISOString().slice(0,10),deadline=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+ await platform.execute(owner,{type:'create',organizationId:selected.organizationId,input:{company:selected.organizationId,name:'Welcome <img src=x>',description:'Shareholder rewards',mode:'ratio',ratio:0.1,budget:1000,minimum:10,cap:100,release:100,snapshotDate:today,deadline,distribution:'claim',chains:['ETH']}});
+ const id=(await platform.read(owner,selected)).state.campaigns[0].id;await platform.execute(owner,{type:'open',organizationId:selected.organizationId,campaignId:id});
+ for(const actor of [owner,platformActor('new-shareholder')]){
+  const h=harness({requiresLogin:true,platform,actor,publicDatabase:DB});await h.start();
+  assert.match(h.nodes['#app'].innerHTML,/Welcome &lt;img/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<svg onload|<img src=x>/);
+  h.handlers.input({target:{id:'public-campaign-search',value:'does not exist'}});assert.match(h.nodes['#public-campaign-results'].innerHTML,/No matching campaigns/);
+  await h.click('public-clear-search');assert.match(h.nodes['#public-campaign-results'].innerHTML,/Welcome &lt;img/);
+  await h.click('public-campaign',{id});assert.match(h.nodes['#dialog'].innerHTML,/Sign in to continue/);
+  await h.click('public-start',{id});assert.equal(vm.runInContext('requestedCampaign',h.context),id);
+  await h.submit('login-email-form',{email:actor.user.email});await h.submit('login-code-form',{code:'123456'});
+  if(actor!==owner){assert.match(h.nodes['#app'].innerHTML,/Continue as a shareholder/);await h.click('onboard-shareholder');}
+  assert.equal(vm.runInContext('workspaceContext.mode',h.context),'shareholder');
+  assert.match(h.nodes['#dialog'].innerHTML,/Welcome &lt;img/);assert.match(h.nodes['#dialog'].innerHTML,/Register holdings/);
+  assert.equal(vm.runInContext('requestedCampaign',h.context),null);
+ }
+});
 
 
 test('UI: first-time shareholders onboard without receiving company permissions or sample investors',async t=>{
