@@ -22,7 +22,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 - Vercel-specific checks cover browser-only output, the API export, secure session isolation, ignored caller-supplied identities, persistent adapter state, concurrent claims, origin checks, and explicit missing-database errors. Live verification passed at https://currenc-connect.vercel.app: HTTP 200, cloud persistence, isolated sessions, the full 500-token demo claim flow, concurrent claims settling exactly once, and cross-origin rejection.
 
-- Live account-login deployment is Ready (deployment `B2Evf5sWSrur3vEMZ1WnRwDLdnSa`, source `59eebab`). Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
+- Live account-login deployment is Ready (latest code deployment `CsiqomRRJPpbMAHKu1QrNeb11Erx`, source `dba2281`). Neon database `neon-fulvous-cable` is connected to Currenc Connect on the Free plan for Production and Preview. Existing deployment protection is preserved.
 
 ## Account login update
 
@@ -31,6 +31,8 @@ Updated: 10 November 2026 (Hong Kong).
 - First login can atomically adopt the browser demo; existing account data is never overwritten.
 - Added regression tests for two devices sharing one account, different-account isolation, legacy adoption, session expiry/revocation, forged identities, and the complete login UI flow.
 - Managed provider: Neon Auth on the existing database branch. Application name: Currenc Connect. Trusted canonical and stable branch domains are configured; sign-up verification uses codes.
-- Live email delivery and first account login were confirmed by Benny and observed in Chrome: the account email and cloud workspace are displayed. An independent browser remains signed out until its own verification.
+- Live email delivery and two independent account logins were completed by Benny and observed in Chrome and the Codex in-app browser. Both displayed the same account email.
+- Cross-browser cloud persistence was verified through the UI: adding 1 simulated uCURR to the CURRENC Ethereum test ledger in Chrome updated its balance to 25,001; reloading the independent browser displayed the same balance. This leaves one test-funding audit entry and does not move real assets.
+- Sign-out was verified in the independent browser: it returned to an enabled email login form and hid the workspace. Chrome retained its own valid session after reload and still displayed the saved 25,001 test balance.
 - Live API checks return 401 without a verified account, 403 for cross-origin sign-out, and 400 for an invalid code. A forged caller identity and the previous anonymous cookie cannot unlock a workspace.
-- Login layout was checked at 390 × 844 with no horizontal overflow. Regression coverage also confirms that sign-out clears private dialogs and leaves the login button ready for a new sign-in. Session responses explicitly disable caching.
+- Login layout was checked at 390 × 844 with no horizontal overflow. Regression coverage also confirms that sign-out clears private dialogs and leaves the login button ready for a new sign-in. Live session responses explicitly return `Cache-Control: no-store`.
