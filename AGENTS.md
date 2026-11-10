@@ -10,6 +10,7 @@
 - GitHub repo：`https://github.com/bennyc-seamlessgroup/currenc-connect.git`。Vercel 現有 `vercel.json`、`api/workspace.js` 及 Neon 資料庫適配；須在 Vercel 連接資料庫並提供 `DATABASE_URL` 或 `POSTGRES_URL`。目前以安全隨機 cookie 隔離瀏覽器示範空間，並非正式登入。
 - `scripts/run.mjs` 會選用合適的已安裝 Node；`scripts/local-server.mjs` 提供 SQLite 本機適配。
 - 預設 build 不再生成離線 HTML；有需要才執行 `npm run build:offline`。
+- Vercel 正式網址：`https://currenc-connect.vercel.app`；Neon 免費資料庫已接駁。22 項測試及真實線上模擬領取／併發測試通過。這仍是 Sandbox，不是正式登入或真實鏈上交易。
 - 勿重設 `.local/workspace.sqlite`；舊版已知示範文案只在顯示層轉為英文。
 
 ## 1. 溝通與工作方式
