@@ -4,11 +4,12 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 最新來源 `92f9407` 已在 Vercel Ready，71 項測試、建置及檢查通過。線上已實測合成帳戶邀請建立／撤銷，以及私密 Portal Review QA 公司中的活動建立／編輯／刪除／還原／開放／封存及重載保存；該測試活動保持 Archived，沒有登記、資金或轉帳。已核對公司成員移除入口、設定說明、股東首頁及三條鏈圖示，原有帳戶和 Viewer 權限保留。獨立測試程式停止，主 localhost:5173 保留運行。
 - 新增 `drizzle/0003_account_lifecycle.sql`：平台 Accounts 可新增登入邀請、撤銷邀請、Remove portal access／Removed → Restore access。身份必須由驗證電郵首次登入建立；不能直接製造 Neon 用戶或自動授予平台／公司權限。邀請七天有效，只 Copy link，不會自動寄信；一般股東仍可自行註冊帳戶。移除是可還原的 `cc_account_controls.archived=1`，不刪除身份／個人／公司／交易資料；所有權限檢查須包含 archived，且撤銷同電郵待接受公司邀請。平台管理員須先撤銷平台角色，Owner／自身不可移除。
-- `src/portal-ui.js` 提供帳戶管理、ⓘ hover/focus／點按說明及股東首頁簡介。股東登記開關只影響新活動持股登記，不影響帳戶登入及已有領取；公告為登入頁面頂部純文字，可清空移除。
+- `src/portal-ui.js` 提供帳戶管理、ⓘ hover/focus／點按說明及股東首頁簡介。股東登記開關只影響新活動持股登記，不影響帳戶登入及已有領取；公告為登入後工作空間頁面頂部純文字，可清空移除。
 - ETH／SOL／BNB 圖示使用 `src/assets/chains/` 官方原始 SVG，來源見該目錄 README；建置成 img data URL，不改色／路徑，不依賴外部圖片請求。勿重新用文字符號或 AI 生成圖取代官方標誌。
 - 本輪加入 `src/campaign-ui.js` 及按階段活動編輯：Draft 全部設定；Open 只名稱／說明及延長登記／領取期限；快照鎖定／暫停只說明。`registrationDeadline`、`claimDeadline` 分開，舊活動沿用 `deadline` fallback，不可靜默更改舊條款。發布後規則不可改、期限不可縮短，鎖定後解鎖比例只能增加。
-- Delete draft 是可還原的 `deleted` 狀態，不實際刪除資料，僅限無登記／交易的草稿。Archive 保留全部配額／交易／餘額，未結清獎勵或仍有開放登記不能封存。Archived 唯讀；Deleted 只可 Restore draft。Owner/Admin 可刪除／還原／封存，Operator 只可按階段編輯；revision 及不可截斷的團隊／平台稽核須一併檢查。
+- Delete draft 是可還原的 `deleted` 狀態，不實際刪除資料，僅限無登記／交易的草稿。Archive 保留全部配額／交易／餘額，未結清獎勵或 Open 活動已有登記時不能封存。Archived 唯讀；Deleted 只可 Restore draft。Owner/Admin 可刪除／還原／封存，Operator 只可按階段編輯；revision 及不可截斷的團隊／平台稽核須一併檢查。
 - 平台公司管理的 Company access 加入 Remove、角色變更 stale-role 檢查及 Pending invitations → Revoke；Owner／自身不能移除。委任／移除時撤銷該公司同電郵舊待接受邀請，避免重獲權限。只撤銷該公司成員權限，保留帳戶、個人股東及其他公司資料。不要對現有測試 Viewer 成員做破壞性實測。
 - 最新產品決定：**公司只由平台團隊建立及輸入資料**。一般帳戶沒有公司登記、申請、提交、補件或審批流程；`create-organization`／`save-company-application`／`submit-company-application` 均回覆 403，不能只隱藏按鈕。
 - 平台入口：Platform console → Companies → Add company；`platform-create-company`、`platform-save-company` 僅允許 Platform Owner/Admin。新公司 active + hidden、空資金及空活動。法律／聯絡資料可由團隊逐步填寫，毋須證明文件或申請快照。公司名／ticker 可編輯，token 建立後固定；更新須保留所有業務資料並檢查公司及狀態 revision。
