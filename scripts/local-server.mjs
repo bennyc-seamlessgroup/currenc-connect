@@ -44,7 +44,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
         if(!['GET','POST'].includes(method))response=Response.json({error:'Method not allowed'},{status:405});
         else if(method==='POST'&&headers.get('Origin')!==new URL(request.url).origin)response=Response.json({error:'Cross-origin requests are not allowed.'},{status:403});
         else {
-          let selection={view:new URL(request.url).searchParams.get('view')||undefined,organizationId:new URL(request.url).searchParams.get('organization')||undefined,page:new URL(request.url).searchParams.get('page'),search:new URL(request.url).searchParams.get('search')};
+          let selection={view:new URL(request.url).searchParams.get('view')||undefined,organizationId:new URL(request.url).searchParams.get('organization')||undefined,page:new URL(request.url).searchParams.get('page'),search:new URL(request.url).searchParams.get('search'),accountFilter:new URL(request.url).searchParams.get('accounts')};
           if(method==='POST') {
             if(Buffer.concat(chunks).length>12000)throw new PlatformError('Request too large',413);
             let command;try{command=await request.json();}catch{throw new PlatformError('Invalid request',400);}

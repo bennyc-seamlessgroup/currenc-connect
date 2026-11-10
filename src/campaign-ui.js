@@ -1,0 +1,35 @@
+function campaignEditor(c=null){
+ if(!can('campaigns')||c&&['archived','deleted','closed'].includes(c.status))return;
+ const draft=!c||c.status==='draft',locked=c&&!draft&&c.status!=='open';
+ const today=new Date().toISOString().slice(0,10),future=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+ const v=(key,fallback='')=>esc(c?.[key]??fallback);
+ const input=(key,fallback,min,max,step='1')=>`<input name="${key}" type="number" min="${min}" max="${max}" step="${step}" value="${v(key,fallback)}" required>`;
+ let fields=`${!locked?field('Campaign name',`<input name="name" required maxlength="70" value="${v('name')}">`,true):''}${field('Description',`<textarea name="description" required maxlength="400" rows="3">${v('description')}</textarea>`,true)}`;
+ if(draft)fields+=`${field('Allocation method',`<select name="mode" id="allocation-mode"><option value="ratio" ${c?.mode!=='pool'?'selected':''}>Fixed ratio · tokens per share</option><option value="pool" ${c?.mode==='pool'?'selected':''}>Fixed pool · proportional to shares</option></select>`)}${field('Tokens per share',input('ratio',0.1,0.000001,1000000,'0.000001'))}${field(`Budget (${esc(c?.token||company().token)})`,input('budget',100000,1,1000000000))}${field('Minimum shares',input('minimum',100,1,10000000))}${field('Token cap per shareholder',input('cap',10000,0.000001,1000000000,'0.000001'))}${field('Initial unlock (%)',input('release',100,0,100))}${field('Record date (UTC)',`<input name="snapshotDate" type="date" value="${v('snapshotDate',today)}" required>`)}${field('Distribution method',`<select name="distribution"><option value="claim" ${c?.distribution!=='push'?'selected':''}>Shareholder claim</option><option value="push" ${c?.distribution==='push'?'selected':''}>Company distribution</option></select>`)}<fieldset class="chain-checkboxes span-2"><legend>Supported networks</legend>${['ETH','SOL','BNB'].map(ch=>`<label><input type="checkbox" name="chains" value="${ch}" ${!c||c.chains.includes(ch)?'checked':''}>${chainIcon(ch)}${CHAIN_NAMES[ch]}</label>`).join('')}</fieldset>`;
+ if(!locked)fields+=`${field('Registration deadline (UTC)',`<input name="registrationDeadline" type="date" value="${esc(c?registrationEnd(c):future)}" min="${esc(!draft?registrationEnd(c):today)}" required>`)}${field('Claim deadline (UTC)',`<input name="claimDeadline" type="date" value="${esc(c?claimEnd(c):future)}" min="${esc(!draft?claimEnd(c):today)}" required>`)}`;
+ openModal(c?locked?'Edit description':'Edit campaign':'New campaign',`<form id="campaign-editor-form" data-id="${c?.id||''}" class="form-grid">${fields}${!draft?notice(locked?'The snapshot, allocations and reward rules are locked.':'Published reward rules are locked. Deadlines can only be extended.'):''}<button class="btn primary span-2" type="submit">${c?'Save changes':'Save draft'}</button></form>`,draft);
+}
+function campaignManagementActions(c){
+ if(c.status==='deleted')return can('lifecycle')?btn('Restore draft','campaign-lifecycle','secondary',`data-id="${c.id}" data-operation="restore-draft"`):'';
+ if(c.status==='archived')return '';
+ return `${can('campaigns')&&['draft','open','locked','paused'].includes(c.status)?btn(['locked','paused'].includes(c.status)?'Edit description':'Edit campaign','edit-campaign','secondary',`data-id="${c.id}"`):''}${can('lifecycle')?btn(c.status==='draft'?'Delete draft':'Archive campaign','campaign-lifecycle',c.status==='draft'?'danger':'secondary',`data-id="${c.id}" data-operation="${c.status==='draft'?'delete-draft':'archive-campaign'}"`):''}`;
+}
+function campaignLifecycleDialog(c,operation){
+ if(!c||!can('lifecycle'))return;
+ const rows=state.holders.filter(h=>h.campaign===c.id),blocked=operation==='archive-campaign'&&(c.status==='open'&&rows.length||rows.some(h=>floorToken(h.allocation-h.claimed)>0));
+ const title=operation==='delete-draft'?'Delete draft':operation==='restore-draft'?'Restore draft':'Archive campaign';
+ const description=operation==='delete-draft'?'Move this unused draft to Deleted. You can restore it later.':operation==='restore-draft'?'Return this campaign to Draft. It will remain unpublished.':'End this campaign and keep its registrations, allocations and transactions as read-only records.';
+ openModal(title,`<p class="modal-description">${esc(c.name)}</p>${notice(blocked?'Lock the snapshot and settle all allocated rewards before archiving.':description)}${blocked?btn('Close','close','secondary'):`<form id="campaign-lifecycle-form" data-id="${c.id}" data-operation="${operation}" class="form-grid"><button class="btn ${operation==='delete-draft'?'danger':'primary'} span-2" type="submit">${title}</button></form>`}`);
+}
+async function campaignSubmit(form,data){
+ if(form.id==='campaign-editor-form'){
+  const c=state.campaigns.find(c=>c.id===form.dataset.id),draft=!c||c.status==='draft';
+  const input=draft?{...data,company:c?.company||companyId,ratio:data.ratio||c?.ratio||0.1,chains:new FormData(form).getAll('chains')}:data;
+  if(await command(c?{type:'edit-campaign',campaignId:c.id,campaignRevision:c.revision||0,input}:{type:'create',input},c?'Campaign updated':'Draft created')){page='campaigns';filter=c?.status||'draft';search='';render();}return true;
+ }
+ if(form.id==='campaign-lifecycle-form'){
+  const c=state.campaigns.find(c=>c.id===form.dataset.id);if(!c)return true;
+  const operation=form.dataset.operation;if(await command({type:operation,campaignId:c.id,campaignRevision:c.revision||0},operation==='delete-draft'?'Draft moved to Deleted':operation==='restore-draft'?'Draft restored':'Campaign archived')){page='campaigns';filter=operation==='delete-draft'?'deleted':operation==='restore-draft'?'draft':'archived';search='';render();}return true;
+ }
+ return false;
+}

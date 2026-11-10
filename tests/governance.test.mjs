@@ -1,4 +1,8 @@
 import test from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import assert from 'node:assert/strict';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 import {createPlatform,PlatformError} from '../server/platform.mjs';
@@ -140,4 +144,76 @@ test('existing sample companies retain all data and require a staff activation b
  const view=await h.read(owner);const id=view.access.organizations.find(o=>o.legacyId==='curr').id;assert.equal((await h.read(investor,{view:'shareholder'})).state.companies.length,0);await h.read(root);
  await review(h,id,'activate');await review(h,id,'show');assert.equal((await app(h,id)).approval_mode,'managed');assert.equal((await h.read(owner,{view:'company',organizationId:id})).state.treasury[id].ETH,25001);
  const fresh=await createCompany(h);await rejects(review(h,fresh,'approve',{approvalMode:'sandbox'}),422);
+});
+
+test('platform removes company access, rejects stale roles and owners, revokes old invitation links and preserves other records',async t=>{
+ const h=harness(t),id=await ready(h),member=actor('removable-admin');await h.read(member);
+ await h.execute(member,{type:'kyc',name:'Personal investor',email:'personal@example.com',country:'Hong Kong',consent:true});
+ await h.execute(owner,{type:'invite-member',organizationId:id,email:member.user.email,role:'viewer'});const oldInvitation=(await h.read(member)).access.invitations[0].id;
+ await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:member.user.email,role:'admin'});
+ await rejects(h.execute(member,{type:'accept-invitation',invitationId:oldInvitation}),403);
+ const other=await createCompany(h);await h.execute(root,{type:'platform-company-admin',organizationId:other,memberEmail:member.user.email,role:'viewer'});
+ const remove=(who,person,expectedRole)=>h.execute(who,{type:'platform-remove-company-member',organizationId:id,memberId:person.accountId,expectedRole,note:'Remove synthetic company access.'});
+ await rejects(remove(member,owner,'owner'),403);await rejects(remove(root,owner,'owner'),403);await rejects(remove(root,root,'owner'),403);await rejects(remove(root,member,'viewer'),409);
+ await h.execute(root,{type:'platform-company-admin',organizationId:id,memberId:member.accountId,expectedRole:'admin',role:'viewer'});await rejects(remove(root,member,'admin'),409);await remove(root,member,'viewer');
+ await rejects(h.read(member,{view:'company',organizationId:id}),403);assert.equal((await h.read(member,{view:'company',organizationId:other})).context.role,'viewer');assert.equal((await h.read(member,{view:'shareholder'})).state.profile.name,'Personal investor');
+ const view=(await h.read(root,{view:'platform',organizationId:id}));assert.ok(!view.platform.company.members.some(m=>m.id===member.accountId));assert.equal(view.platform.audit.filter(a=>a.action==='Company member removed').length,1);assert.ok((await h.read(owner,{view:'company',organizationId:id})).team.audit.some(a=>a.action==='Platform removed company member'));
+ await rejects(remove(root,member,'viewer'),409);
+});
+
+test('platform pending invitations can be revoked without membership or loss of previous audit',async t=>{
+ const h=harness(t),id=await ready(h),recipient=actor('pending-recipient');await h.read(recipient);
+ await h.execute(owner,{type:'invite-member',organizationId:id,email:recipient.user.email,role:'operator'});const detail=(await h.read(root,{view:'platform',organizationId:id})).platform.company;assert.equal(detail.invitations.length,1);
+ const cmd={type:'platform-revoke-company-invitation',organizationId:id,invitationId:detail.invitations[0].id};await rejects(h.execute(recipient,cmd),403);await h.execute(root,cmd);
+ assert.equal((await h.read(root,{view:'platform',organizationId:id})).platform.company.invitations.length,0);await rejects(h.execute(recipient,{type:'accept-invitation',invitationId:cmd.invitationId}),403);await rejects(h.execute(root,cmd),409);
+});
+
+test('campaign lifecycle is role guarded, revision protected, audited and hidden from public discovery',async t=>{
+ const h=harness(t),id=await ready(h),cid=await draftCampaign(h,id),operator=actor('editor'),viewer=actor('reader');
+ for(const [person,role]of [[operator,'operator'],[viewer,'viewer']]){await h.read(person);await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:person.user.email,role});}
+ const get=async()=> (await h.read(owner,{view:'company',organizationId:id})).state.campaigns.find(c=>c.id===cid);
+ const update=async(person,input,revision)=>h.execute(person,{type:'edit-campaign',organizationId:id,campaignId:cid,campaignRevision:revision??((await get()).revision||0),input});
+ const initial=await get(),input={...initial,name:'Revised draft'};for(const key of ['id','status','token','platform','revision'])delete input[key];
+ await rejects(update(viewer,input),403);await update(operator,input);await rejects(update(owner,input,0),409);
+ const remove={type:'delete-draft',organizationId:id,campaignId:cid,campaignRevision:(await get()).revision};await rejects(h.execute(operator,remove),403);await h.execute(owner,remove);assert.equal((await get()).status,'deleted');assert.equal((await h.read(investor,{view:'shareholder'})).state.campaigns.length,0);
+ await h.execute(owner,{type:'restore-draft',organizationId:id,campaignId:cid,campaignRevision:(await get()).revision});await h.execute(owner,{type:'open',organizationId:id,campaignId:cid});assert.equal((await h.read(investor,{view:'shareholder'})).state.campaigns.length,1);
+ await rejects(update(owner,{budget:1}),422);await update(owner,{name:'Public revised name',description:'Public revised description'});
+ await h.execute(owner,{type:'archive-campaign',organizationId:id,campaignId:cid,campaignRevision:(await get()).revision});assert.equal((await get()).status,'archived');assert.equal((await h.read(investor,{view:'shareholder'})).state.campaigns.length,0);
+ await rejects(h.execute(root,{type:'platform-campaign-control',organizationId:id,campaignId:cid,revision:0,action:'show',note:'Cannot expose archived activity.'}),422);
+ const audit=(await h.read(owner,{view:'company',organizationId:id})).team.audit;for(const type of ['edit-campaign','delete-draft','restore-draft','archive-campaign'])assert.ok(audit.some(a=>a.action==='Campaign '+type));
+});
+
+test('account invitations create no fake identity or privileges and bind acceptance to verified email',async t=>{
+ const h=harness(t);await h.read(root);const email='new-invite@example.com',recipient={...actor('new-recipient'),user:{...actor('new-recipient').user,email}};
+ await rejects(h.execute(owner,{type:'platform-invite-account',email}),403);await h.execute(root,{type:'platform-invite-account',email:email.toUpperCase(),role:'owner'});
+ let view=await h.read(root,{view:'platform'});assert.equal(view.platform.accountInvitations[0].email,email);assert.equal((await h.DB.query('SELECT id FROM cc_accounts WHERE email=$1',[email])).length,0);
+ await rejects(h.execute(root,{type:'platform-invite-account',email}),409);await h.read(stranger);assert.equal((await h.read(root,{view:'platform'})).platform.accountInvitations.length,1);
+ const data=await h.read(recipient);assert.equal(data.access.platformRole,null);assert.deepEqual(data.access.organizations,[]);assert.equal(data.access.onboarded,false);assert.equal((await h.read(root,{view:'platform'})).platform.accountInvitations.length,0);
+ assert.equal((await h.DB.query('SELECT status,accepted_by FROM cc_account_invitations WHERE email=$1',[email]))[0].accepted_by,recipient.accountId);await rejects(h.execute(root,{type:'platform-invite-account',email}),409);
+});
+
+test('account invitation revocation and expiry never grant access or accept a stale invitation',async t=>{
+ const h=harness(t);await h.read(root);const recipient=actor('expired-invite'),email=recipient.user.email;await h.execute(root,{type:'platform-invite-account',email});let invitation=(await h.read(root,{view:'platform'})).platform.accountInvitations[0];
+ await h.DB.query("UPDATE cc_account_invitations SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=$1",[invitation.id]);await h.execute(root,{type:'platform-invite-account',email});const next=(await h.read(root,{view:'platform'})).platform.accountInvitations[0];assert.notEqual(next.id,invitation.id);
+ await rejects(h.execute(stranger,{type:'platform-revoke-account-invitation',invitationId:next.id}),403);await h.execute(root,{type:'platform-revoke-account-invitation',invitationId:next.id});await h.read(recipient);
+ const rows=await h.DB.query('SELECT id,status FROM cc_account_invitations WHERE email=$1',[email]);assert.equal(rows.find(i=>i.id===invitation.id).status,'expired');assert.equal(rows.find(i=>i.id===next.id).status,'revoked');assert.equal((await h.read(recipient)).access.platformRole,null);
+});
+
+test('removing and restoring portal access preserves company membership, personal rewards and history',async t=>{
+ const h=harness(t),id=await ready(h),person=actor('removable-account');await h.read(person);await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:person.user.email,role:'viewer'});
+ await h.execute(person,{type:'kyc',name:'Personal record retained',email:'demo@example.com',country:'Hong Kong',consent:true});const before=await h.read(person,{view:'company',organizationId:id});
+ const cmd={type:'platform-remove-account',accountId:person.accountId,revision:0,note:'Synthetic portal removal test.'};await rejects(h.execute(owner,cmd),403);await rejects(h.execute(root,{...cmd,accountId:root.accountId}),403);await h.execute(root,cmd);
+ await assert.rejects(h.read(person),e=>e.status===403&&e.code==='ACCOUNT_REMOVED');await assert.rejects(h.documents.download(person,'any'),e=>e.code==='ACCOUNT_REMOVED');
+ assert.ok(!(await h.read(root,{view:'platform'})).platform.accounts.some(a=>a.id===person.accountId));const removed=(await h.read(root,{view:'platform',accountFilter:'removed'})).platform.accounts.find(a=>a.id===person.accountId);assert.equal(removed.status,'removed');assert.equal(removed.control_revision,1);
+ await rejects(h.execute(root,{type:'platform-account-status',accountId:person.accountId,status:'active',revision:1,note:'Wrong restore method.'}),409);
+ await rejects(h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:0,note:'Stale restoration attempt.'}),409);await h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:1,note:'Restore synthetic portal access.'});
+ const after=await h.read(person,{view:'company',organizationId:id});assert.equal(after.context.role,'viewer');assert.equal(after.state.profile.name,'Personal record retained');assert.deepEqual(after.state.treasury,before.state.treasury);assert.equal((await h.read(root,{view:'platform',accountFilter:'removed'})).platform.accounts.length,0);
+});
+
+
+test('account lifecycle migration upgrades an existing database without changing prior users or controls',t=>{
+ const dir=mkdtempSync(join(tmpdir(),'currenc-account-upgrade-')),path=join(dir,'old.sqlite');t.after(()=>rmSync(dir,{recursive:true,force:true}));const old=new DatabaseSync(path);
+ for(const file of ['0000_workspace.sql','0001_platform.sql','0002_governance.sql'])old.exec(readFileSync('drizzle/'+file,'utf8'));
+ old.prepare('INSERT INTO cc_accounts (id,email,name,profile,activity,onboarded,created_at) VALUES (?,?,?,?,?,?,?)').run('preserved','preserved@example.com','Preserved','{}','[]',1,'2026-01-01');old.prepare('INSERT INTO cc_account_controls (account_id,status,reason,revision,updated_at) VALUES (?,?,?,?,?)').run('preserved','suspended','Existing reason',7,'2026-01-01');old.close();
+ for(let i=0;i<2;i++){const DB=createSqliteDatabase(path);const row=DB.db.prepare('SELECT * FROM cc_account_controls WHERE account_id=?').get('preserved');assert.equal(row.archived,0);assert.equal(row.status,'suspended');assert.equal(row.revision,7);assert.equal(row.reason,'Existing reason');DB.close();}
 });

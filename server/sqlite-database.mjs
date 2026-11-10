@@ -7,6 +7,8 @@ export function createSqliteDatabase(path) {
   db.exec(readFileSync(new URL('../drizzle/0000_workspace.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../drizzle/0001_platform.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../drizzle/0002_governance.sql',import.meta.url),'utf8'));
+  if(!db.prepare('PRAGMA table_info(cc_account_controls)').all().some(c=>c.name==='archived'))db.exec('ALTER TABLE cc_account_controls ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+  db.exec(readFileSync(new URL('../drizzle/0003_account_lifecycle.sql',import.meta.url),'utf8').replace('ALTER TABLE cc_account_controls ADD COLUMN IF NOT EXISTS archived INTEGER NOT NULL DEFAULT 0;',''));
   const execute=(sql,values=[])=>{
     const args=[];
     const statement=db.prepare(sql.replace(/\$(\d+)/g,(_,index)=>{args.push(values[Number(index)-1]);return '?';}));

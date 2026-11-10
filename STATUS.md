@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 57 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
+- 71 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -62,3 +62,13 @@ Updated: 10 November 2026 (Hong Kong).
 - 57 automated tests pass, including disabled self-service routes, staff-only creation/editing, privacy, stale/concurrent edits and decisions, preservation of ledgers, company memberships, suspension and the complete simulated rewards flow. Build, asset validation and whitespace checks pass.
 - Production source `03ed9bc` is Ready (deployment `DTZuRJaUZACfrzRAgwwEfCRoQEWa`). Live Postgres/browser verification passed for staff-only direct company creation, saving company information, persistence after reload, deactivation and conditional audit. The new synthetic QA company is inactive/hidden and has no campaigns or funds. The existing ordinary member's Settings page has no registration controls.
 - Isolated localhost verification passed for direct creation, renaming and saved contact/registration details. Desktop and 390 × 844 company editing were checked without page-level horizontal overflow. Its temporary QA server was stopped; the primary localhost server retains the user's original database.
+
+## Campaign lifecycle and access maintenance
+
+- Added platform company-member removal, stale-role checks, protection of owners/self, automatic revocation of old pending company invitations on access changes, and direct pending-invitation revocation. Personal accounts and other company memberships remain intact; platform/team audit is atomic.
+- Added draft editing, reversible draft deletion/restoration, published text/deadline editing, description-only changes after snapshot, and read-only archiving after allocated rewards settle. Separate registration/claim dates preserve legacy deadlines through fallback. Published rules cannot change and deadlines cannot be shortened.
+- Owner/admin lifecycle permissions, operator editing and viewer read-only permissions are enforced server-side. Archived/deleted campaigns are excluded from public discovery, preserved for records and cannot be re-exposed by moderation controls.
+- 71 automated tests pass, including legacy database upgrade, account invitation/verified acceptance, removal and restoration, clearing removed sessions, contextual help and network-image rendering. Build/asset checks pass.
+- Added seven-day account sign-in invitations with manual link sharing, pending revocation and reversible removal/restoration of portal access. Actual identities are created only by verified sign-in; invitations grant no company/platform role. All protected account guards include the removed flag. Existing records are preserved; pending company links are revoked on removal.
+- Added desktop hover/focus and touch-friendly ⓘ descriptions, announcement/registration-switch explanations, a short shareholder introduction and three-step overview, and locally embedded official network marks with recorded sources.
+- Isolated native-browser QA passed for company-member removal, pending-company-invitation revocation, campaign editing/delete/restore/open/archive, account invitation creation/removal and restore-dialog wording, tooltip dialogs and shareholder introduction. Desktop and 390px checks have no page-level horizontal overflow. Production rollout is pending.

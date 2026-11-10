@@ -78,3 +78,42 @@ test('create pool draft, open registration, reject overbudget snapshot and futur
  assert.throws(()=>applyCommand(s,{type:'snapshot',campaignId:c.id}),/not been reached/);
  assert.throws(()=>run(s,'create',{input:{...input,chains:[]}}),/at least one/);
 });
+
+test('campaign editing freezes published rules, separates deadlines and rejects stale changes',()=>{
+ let s=seedState();const draft=s.campaigns.find(c=>c.status==='draft');
+ const input={...draft,name:'Updated draft',ratio:0.75,registrationDeadline:draft.deadline,claimDeadline:new Date(Date.now()+60*86400000).toISOString().slice(0,10)};
+ for(const key of ['id','status','token'])delete input[key];
+ s=applyCommand(s,{type:'edit-campaign',campaignId:draft.id,campaignRevision:0,input});
+ let c=s.campaigns.find(c=>c.id===draft.id);assert.equal(c.ratio,0.75);assert.notEqual(c.registrationDeadline,c.claimDeadline);assert.equal(c.revision,1);
+ assert.throws(()=>applyCommand(s,{type:'edit-campaign',campaignId:c.id,campaignRevision:0,input}),/campaign changed/);
+ s=applyCommand(s,{type:'open',campaignId:c.id});c=s.campaigns.find(c=>c.id===draft.id);
+ const edit=input=>applyCommand(s,{type:'edit-campaign',campaignId:c.id,campaignRevision:c.revision,input});
+ for(const field of ['ratio','budget','cap','minimum','release','chains','snapshotDate','distribution','company','token','status'])assert.throws(()=>edit({[field]:input[field]}),/rules are locked/);
+ assert.throws(()=>edit({registrationDeadline:new Date().toISOString().slice(0,10)}),/only be extended/);
+ s=edit({name:'Published name',description:'Updated published description',registrationDeadline:c.registrationDeadline,claimDeadline:c.claimDeadline});
+ assert.equal(s.campaigns.find(c=>c.id===draft.id).name,'Published name');
+ let locked=ready();const before=structuredClone(locked.holders);const target=locked.campaigns[0];
+ locked=applyCommand(locked,{type:'edit-campaign',campaignId:target.id,campaignRevision:target.revision,input:{description:'Clarification only'}});assert.deepEqual(locked.holders,before);
+ assert.throws(()=>applyCommand(locked,{type:'edit-campaign',campaignId:target.id,campaignRevision:locked.campaigns[0].revision,input:{name:'Different name'}}),/rules are locked/);
+});
+
+test('draft deletion is reversible; published archives preserve records and cannot discard unclaimed rewards',()=>{
+ let s=seedState(),c=s.campaigns.find(c=>c.status==='draft');const original=structuredClone(c);
+ s=applyCommand(s,{type:'delete-draft',campaignId:c.id,campaignRevision:0});c=s.campaigns.find(x=>x.id===c.id);assert.equal(c.status,'deleted');assert.equal(c.name,original.name);
+ assert.throws(()=>applyCommand(s,{type:'open',campaignId:c.id}),/read-only/);
+ s=applyCommand(s,{type:'restore-draft',campaignId:c.id,campaignRevision:c.revision});assert.equal(s.campaigns.find(x=>x.id===c.id).status,'draft');
+ assert.throws(()=>applyCommand(seedState(),{type:'delete-draft',campaignId:'curr-welcome',campaignRevision:0}),/Only unused drafts/);
+ assert.throws(()=>applyCommand(seedState(),{type:'archive-campaign',campaignId:'curr-welcome',campaignRevision:0}),/settle registered/);
+ let locked=ready();assert.throws(()=>applyCommand(locked,{type:'archive-campaign',campaignId, campaignRevision:locked.campaigns[0].revision}),/Settle all/);
+ // Complete all allocations without changing real funds: this is a synthetic state fixture.
+ locked.holders.forEach(h=>{if(h.campaign===campaignId)h.claimed=h.allocation;});const rows=structuredClone(locked.holders),treasury=structuredClone(locked.treasury),tx=structuredClone(locked.transactions);
+ locked=applyCommand(locked,{type:'archive-campaign',campaignId,campaignRevision:locked.campaigns[0].revision});assert.equal(locked.campaigns[0].status,'archived');assert.deepEqual(locked.holders,rows);assert.deepEqual(locked.treasury,treasury);assert.deepEqual(locked.transactions,tx);
+ assert.throws(()=>run(locked,'release',{percent:100}),/read-only/);assert.throws(()=>run(locked,'claim'),/read-only/);
+});
+
+test('registration deadlines do not stop snapshots or claims before the separate claim deadline',()=>{
+ let s=seedState(),c=s.campaigns[0];c.distribution='push';c.registrationDeadline=new Date(Date.now()-86400000).toISOString().slice(0,10);c.claimDeadline=c.deadline;
+ s=run(s,'kyc',{name:'Test',email:'test@example.com',country:'Hong Kong',consent:true});assert.throws(()=>run(s,'verify',{shares:5000,source:'broker'}),/registration deadline/);
+ s=run(s,'review',{holderId:'sample-iris',approved:true});s=run(s,'snapshot');assert.equal(s.campaigns[0].status,'locked');
+ s=run(s,'distribute');assert.equal(s.transactions.length,4);
+});

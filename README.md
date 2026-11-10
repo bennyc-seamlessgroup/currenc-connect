@@ -58,6 +58,36 @@ The previous application interface is retired. Historical private files remain a
 
 Portal settings control new shareholder campaign registrations and a plain-text announcement. Account suspension, platform-role delegation, company administrator appointment and team invitations retain their previous server-side protections. Only the platform owner can appoint/remove platform admins; the platform owner cannot be demoted or suspended through the app. Platform review rights do not automatically confer company membership or access to company shareholder ledgers; a staff member who creates a company owns that new workspace.
 
+### Editing, removing and retaining records
+
+**Company access:** Platform console → Companies → Manage shows every company member's role. Platform staff can Change role or Remove a non-owner member, with a removal reason. Removing company access does not delete an account or its personal shareholder records. Owner/self-removal is protected. Role edits/removals check the displayed role to reject stale changes. Appointing an existing member must use Change role. Assignment/removal revokes outstanding invitation links for that company/email so old links cannot restore access. Pending company invitations can also be revoked directly from this screen. Every change is recorded in platform and team audit.
+
+**Campaign lifecycle:**
+
+| Stage | Available changes |
+| --- | --- |
+| Draft | Edit all settings. Owners/admins can move an unused draft to Deleted, then restore it. |
+| Open registration | Edit name/description and extend registration/claim deadlines. Reward rules and eligibility stay locked. |
+| Snapshot locked / paused | Edit description only; cumulative unlock can increase through the existing unlock action. |
+| Archived | Read-only records. Archive is available after registered shareholders' rewards are settled. |
+| Deleted | Read-only draft retained for audit; owners/admins can restore it unpublished. |
+
+Registration and claim deadlines are now separate UTC dates. Existing campaigns fall back to their saved combined deadline until edited; no dates or reward rules are silently migrated. Registration stops at its own deadline. Snapshot locking and claims remain possible up to the claim deadline. The claim deadline cannot precede registration. Published deadlines cannot be shortened. Locked reward rules cannot be changed by forged API payloads. Campaign revisions reject stale edits, with company/team audit stored atomically alongside each lifecycle change.
+
+Delete draft is reversible and only available without registration/distribution records. Published campaigns use Archive, which preserves all shareholders, allocations, treasury balances and transactions. Unsettled allocated rewards or open registrations block archiving. Archived/deleted campaigns leave public discovery and cannot be changed or revived by platform visibility controls. Operators may edit permitted fields; only company owners/admins delete/restore drafts or archive campaigns. Viewer access remains read-only.
+
+Company name/ticker/contact details, company listing/status, account suspension and platform administrator access already have edit/revoke controls. Token symbols, company ownership, historical files, allocations and completed transactions retain their existing immutability; company/account access is suspended or revoked without destroying financial history.
+
+### Portal accounts, explanations and first visit
+
+**Accounts → Add account** creates a seven-day sign-in invitation, not an invented authentication identity. Share **Copy link** yourself; no invitation email is sent automatically. A recipient's first verified email sign-in creates the actual account and marks a matching valid invitation accepted. The link grants no company membership or platform administrator privilege. Normal shareholder sign-up remains available independently of invitations; revoking an invitation removes the invitation record, not the ability to sign up publicly.
+
+**Remove portal access** blocks all protected workspace/document access and moves the record to **Removed**. **Restore access** re-enables that account and its existing memberships. Account records, provider identity, rewards, company ownership and audit history are retained. Removing access also revokes pending company invitation links for that email. Platform administrators must first lose their platform role; the platform owner and the acting administrator's own account remain protected. This is reversible portal-access removal, not deletion of a Neon identity.
+
+The ⓘ controls explain account access, company roles/listing, campaign moderation, the announcement and campaign-registration setting. Hover/focus shows a tooltip on desktop; clicking opens the same readable explanation on keyboard/touch devices. **Portal announcement** is a plain-text notice at the top of signed-in workspace pages; clear the field to remove it. **Accept new shareholder campaign registrations** controls new holdings registrations in published campaigns, not new account creation or existing reward claims.
+
+The shareholder Companies page now gives a short introduction and three steps: choose a company, add profile/holding details, then add a wallet and claim available rewards. Chain symbols use unchanged official Ethereum/Solana/BNB Chain SVG marks, embedded locally with no third-party image requests. Sources are recorded in `src/assets/chains/README.md`. Verification and payouts remain simulated.
+
 ### Initialize the platform owner
 
 Set **`PLATFORM_BOOTSTRAP_OWNER_EMAIL`** in the Vercel project's **Production** environment to the intended operator's verified login email, then redeploy. Keep this deployment-controlled value server-side; do not commit a real operator email or add a client-exposed prefix. The trusted issuer is the configured Neon Auth service. The first matching verified account is bound as the sole platform owner **by its authenticated account ID**. There is no first-user, company-owner, request-header or self-service route to platform privileges. Later changes to the bootstrap email do not transfer ownership. Other platform admins are delegated by the initialized owner through Accounts.

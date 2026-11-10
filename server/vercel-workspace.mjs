@@ -38,7 +38,7 @@ export function createVercelWorkspaceHandler({database=getCloudDatabase,environm
       }
       const platform=createPlatform(DB,governanceOptions(environment()));
       const actor={...identity,accountId:id};
-      let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search')};
+      let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search'),accountFilter:url.searchParams.get('accounts')};
       if(request.method==='POST') {
         let command;
         try {const text=await request.text();if(Buffer.byteLength(text)>12000)return json({error:'Request too large'},413);command=JSON.parse(text);}

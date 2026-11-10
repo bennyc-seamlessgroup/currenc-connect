@@ -403,3 +403,26 @@ dialog::backdrop { background: #152c2c66; }
 @media(max-width:600px){.invitation-row{align-items:stretch;flex-direction:column}.member-role-form{gap:10px}.row-actions{gap:12px}}
 .workspace-notice{display:flex;align-items:center;gap:16px;justify-content:space-between;padding:18px 22px;margin-bottom:24px;border:1px solid var(--line);border-radius:12px;background:#edf4f1;overflow-wrap:anywhere}.workspace-notice>span{flex:1}.platform-label{display:flex;align-items:center;gap:12px;margin:22px 14px;color:var(--teal)}.application-panel{padding:28px;margin-bottom:24px}.application-panel>h2{margin:0 0 24px}.form-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:8px}.document-list{display:grid;gap:12px}.document-link{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:9px;color:var(--ink);text-decoration:none}.document-link>span:first-of-type{flex:1;overflow-wrap:anywhere}.document-upload,.admin-appointment{margin-top:24px}.document-upload input[type=file]{padding:9px;max-width:100%}.review-feedback{padding:24px;margin-bottom:24px;overflow-wrap:anywhere}.review-feedback p{line-height:1.7;margin-bottom:0}.approval-heading{display:flex;align-items:center;gap:16px;margin-bottom:24px}.platform-search{display:flex;gap:12px;margin-bottom:24px}.platform-search .search{flex:1}.pagination{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin:24px 0}.moderation-row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:20px 0}.moderation-row+.moderation-row{border-top:1px solid var(--line)}.moderation-row p{margin:8px 0 0;color:var(--muted)}.submission-history{padding:18px 0;border-bottom:1px solid var(--line)}.submission-history summary{cursor:pointer;font-weight:600}.application-panel .detail-list{margin-top:8px}.form-grid input:disabled{background:var(--bg);color:var(--muted)}
 @media(max-width:600px){.application-panel{padding:20px}.workspace-notice,.moderation-row{align-items:stretch;flex-direction:column}.platform-search{flex-wrap:wrap}.platform-search .search{min-width:180px}.approval-heading{align-items:flex-start;flex-direction:column}.form-actions .btn{flex:1}.document-link{flex-wrap:wrap}.application-panel .detail-list dd{overflow-wrap:anywhere}}
+
+.badge.archived, .badge.deleted { color: var(--muted); background: #f1f3f1; }
+
+.chain-icon img { display: block; width: 22px; height: 22px; object-fit: contain; }
+.chain-checkboxes .chain-icon img { width: 18px; height: 18px; }
+.help-tip { position: relative; display: inline-flex; align-items: center; vertical-align: middle; }
+.info-button { border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 4px; color: var(--muted); cursor: pointer; border-radius: 50%; }
+.info-button:hover, .info-button:focus-visible { background: #e8eeea; color: var(--ink); outline: 2px solid #39796f; outline-offset: 2px; }
+.info-button .icon { width: 18px; height: 18px; }
+.help-popover { display: none; position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: min(300px,75vw); padding: 14px 16px; color: #fff; background: #243b35; border-radius: 8px; font-size: 14px; font-weight: 400; line-height: 1.55; box-shadow: 0 8px 24px #14292024; pointer-events: none; }
+.help-tip:hover .help-popover, .help-tip:focus-within .help-popover { display: block; }
+.setting-with-help { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.shareholder-intro { margin: 0 0 30px; padding: 28px 30px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.shareholder-intro h2 { margin: 0 0 12px; font-size: 27px; letter-spacing: -.5px; }
+.shareholder-intro p { max-width: 750px; font-size: 16px; line-height: 1.65; color: var(--muted); margin: 0; }
+.shareholder-steps { list-style: none; padding: 0; display: flex; gap: 30px; flex-wrap: wrap; margin: 24px 0 0; }
+.shareholder-steps li { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.shareholder-steps li span { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; border-radius: 50%; background: #edf3ef; color: #39796f; font-weight: 600; }
+@media (max-width: 640px) { .shareholder-intro { padding: 22px; } .shareholder-intro h2 { font-size: 24px; } .shareholder-steps { flex-direction: column; gap: 14px; } }
+
+.chain-icon.sol { background: #101817; }
+.chain-icon.bnb { background: #111817; }
+@media (max-width: 640px) { .help-tip .help-popover { display: none !important; } }

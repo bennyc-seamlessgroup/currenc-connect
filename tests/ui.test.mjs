@@ -8,7 +8,8 @@ import {seedState,applyCommand} from '../lib/domain.ts';
 import {createPlatform} from '../server/platform.mjs';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
-const app=readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8');
+const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
+const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8');
 function harness({requiresLogin=false,platform=null,actor=null}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
@@ -28,7 +29,7 @@ function harness({requiresLogin=false,platform=null,actor=null}={}){
     return {ok:true,status:200,json:async()=>({success:true})};
    }
    if(!signedIn)return {ok:false,status:401,json:async()=>({signIn:true,error:'Sign in'})};
-   if(platform){try{const url=new URL('https://test.local'+_url);let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search')};if(options?.method==='POST')selection=await platform.execute(actor,JSON.parse(options.body));const data=await platform.read(actor,selection);return {ok:true,status:200,json:async()=>({...data,user:actor.user})};}catch(error){return {ok:false,status:error.status||500,json:async()=>({error:error.message,code:error.code})};}}
+   if(platform){try{const url=new URL('https://test.local'+_url);let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search'),accountFilter:url.searchParams.get('accounts')};if(options?.method==='POST')selection=await platform.execute(actor,JSON.parse(options.body));const data=await platform.read(actor,selection);return {ok:true,status:200,json:async()=>({...data,user:actor.user})};}catch(error){return {ok:false,status:error.status||500,json:async()=>({error:error.message,code:error.code})};}}
    try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,status:200,json:async()=>({state:stored,...(requiresLogin?{user:{name:'Account owner',email:'owner@example.com'}}:{})})};}catch(e){return{ok:false,status:422,json:async()=>({error:e.message})};}
   }
  });
@@ -207,4 +208,40 @@ test('UI: suspended accounts clear all cached company data and provide only sign
  const h=harness({platform,actor:member});await h.start();await h.click('create');assert.equal(h.nodes['#dialog'].open,true);
  await platform.execute(root,{type:'platform-account-status',accountId:member.accountId,status:'suspended',revision:0,note:'Test suspension.'});await h.start();
  assert.match(h.nodes['#app'].innerHTML,/Account suspended/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Private owned company|New campaign/);assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
+});
+
+test('UI: campaign editor, reversible deletion and archive expose only stage-appropriate controls',async()=>{
+ const h=harness();await h.start();const id='curr-loyalty';await h.click('detail',{id});assert.match(h.nodes['#dialog'].innerHTML,/Edit campaign|Delete draft/);
+ await h.click('edit-campaign',{id});assert.match(h.nodes['#dialog'].innerHTML,/Registration deadline \(UTC\)/);assert.match(h.nodes['#dialog'].innerHTML,/Claim deadline \(UTC\)/);
+ const c=h.stored.campaigns.find(c=>c.id===id);await h.submit('campaign-editor-form',{name:'Edited loyalty',description:'Edited draft',mode:'ratio',ratio:0.3,budget:10000,minimum:100,cap:1000,release:100,snapshotDate:c.snapshotDate,registrationDeadline:c.deadline,claimDeadline:c.deadline,distribution:'claim',chains:'ETH'},{id});assert.equal(h.stored.campaigns.find(c=>c.id===id).ratio,0.3);
+ await h.click('campaign-lifecycle',{id,operation:'delete-draft'});assert.match(h.nodes['#dialog'].innerHTML,/restore it later/);await h.submit('campaign-lifecycle-form',{}, {id,operation:'delete-draft'});assert.equal(h.stored.campaigns.find(c=>c.id===id).status,'deleted');
+ await h.click('detail',{id});assert.match(h.nodes['#dialog'].innerHTML,/Restore draft/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Edit campaign|Open registration/);await h.submit('campaign-lifecycle-form',{}, {id,operation:'restore-draft'});
+ await h.click('open',{id});assert.match(h.nodes['#app'].innerHTML,/Edited loyalty/);await h.click('edit-campaign',{id});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/name="budget"|name="chains"|name="release"/);
+ await h.click('campaign-lifecycle',{id,operation:'archive-campaign'});await h.submit('campaign-lifecycle-form',{}, {id,operation:'archive-campaign'});assert.equal(h.stored.campaigns.find(c=>c.id===id).status,'archived');await h.click('detail',{id});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Edit campaign|Delete draft|Restore draft|Open registration/);
+});
+
+test('UI: platform company access shows removal, protects owner/self and supports invitation revocation',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('platform-root'),member=platformActor('company-admin'),recipient=platformActor('pending');const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}});await platform.read(root);
+ const selected=await platform.execute(root,{type:'platform-create-company',name:'Access test',ticker:'TEST',token:'TEST'});await platform.read(member);await platform.read(recipient);await platform.execute(root,{type:'platform-company-admin',organizationId:selected.organizationId,memberEmail:member.user.email,role:'admin'});await platform.execute(root,{type:'invite-member',organizationId:selected.organizationId,email:recipient.user.email,role:'viewer'});
+ const h=harness({platform,actor:root});await h.start({view:'platform',organizationId:selected.organizationId});await h.click('platform-company',{id:selected.organizationId});assert.match(h.nodes['#app'].innerHTML,/Company access|platform-company-remove|Pending invitations/);
+ await h.click('platform-company-remove',{id:root.accountId});assert.equal(h.nodes['#dialog'].open,false);
+ await h.click('platform-company-remove',{id:member.accountId});assert.match(h.nodes['#dialog'].innerHTML,/Remove company access/);
+ const values={organizationId:selected.organizationId,memberId:member.accountId,expectedRole:'admin'};await h.submit('platform-action-form',{note:'UI test removal.'},{type:'platform-remove-company-member',values:JSON.stringify(values)});assert.doesNotMatch(h.nodes['#app'].innerHTML,/company-admin@example.com/);
+ const invitation=(await platform.read(root,{view:'platform',organizationId:selected.organizationId})).platform.company.invitations[0];await h.click('platform-revoke-invitation',{id:invitation.id});assert.match(h.nodes['#dialog'].innerHTML,/Revoke company invitation/);
+});
+
+test('UI: shareholder introduction, official network images and contextual help orient new visitors',async()=>{
+ const h=harness();await h.start();await h.click('nav',{page:'treasury'});const html=h.nodes['#app'].innerHTML;assert.equal((html.match(/data:image\/svg\+xml;base64,/g)||[]).length,3);assert.doesNotMatch(html,/♦|≋|▧/);
+ await h.click('mode',{mode:'shareholder'});assert.match(h.nodes['#app'].innerHTML,/Currenc Connect brings company token rewards to shareholders/);assert.match(h.nodes['#app'].innerHTML,/Choose a company/);assert.match(h.nodes['#app'].innerHTML,/Add a wallet &amp; claim rewards/);
+ await h.click('show-info',{title:'Portal announcement',description:'A notice shown at the top of workspace pages.'});assert.match(h.nodes['#dialog'].innerHTML,/Portal announcement/);assert.match(h.nodes['#dialog'].innerHTML,/notice shown/);
+});
+
+test('UI: account invitations and removed accounts have clear controls and removed sessions clear private UI',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('platform-root'),member=platformActor('removed-member');const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}});await platform.read(root);const selected=await staffCompany(DB,platform,member,'Retained private company');
+ const h=harness({platform,actor:root});await h.start({view:'platform'});await h.click('nav',{page:'platform-accounts'});assert.match(h.nodes['#app'].innerHTML,/Add account|Remove portal access/);
+ await h.click('platform-add-account');assert.match(h.nodes['#dialog'].innerHTML,/no email is sent automatically/);await h.submit('platform-account-invite-form',{email:'invited@example.com'});assert.match(h.nodes['#app'].innerHTML,/Pending account invitations/);assert.match(h.nodes['#app'].innerHTML,/Copy link/);
+ await h.click('nav',{page:'portal-settings'});assert.match(h.nodes['#app'].innerHTML,/Existing rewards and claims continue/);assert.match(h.nodes['#app'].innerHTML,/role="tooltip"/);
+ const personal=harness({platform,actor:member});await personal.start(selected);await personal.click('create');assert.equal(personal.nodes['#dialog'].open,true);
+ await platform.execute(root,{type:'platform-remove-account',accountId:member.accountId,revision:0,note:'Synthetic removal.'});await personal.start();assert.match(personal.nodes['#app'].innerHTML,/Portal access removed/);assert.doesNotMatch(personal.nodes['#app'].innerHTML,/Retained private company|New campaign/);assert.equal(personal.nodes['#dialog'].innerHTML,'');
+ await h.click('platform-account-filter',{filter:'removed'});assert.match(h.nodes['#app'].innerHTML,/Restore access/);
 });

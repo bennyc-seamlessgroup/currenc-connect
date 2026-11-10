@@ -13,11 +13,11 @@ const statement=(sql,values=[])=>({sql,values});
 const parse=row=>JSON.parse(row.data);
 const label=(value,name,max=80)=>{requireValue(typeof value==='string'&&value.trim().length>0&&value.trim().length<=max,`Enter a valid ${name}.`);return value.trim();};
 const roles=['admin','operator','viewer'];
-export const permissions=role=>({campaigns:['owner','admin','operator'].includes(role),treasury:['owner','admin'].includes(role),team:['owner','admin'].includes(role),owner:role==='owner'});
-const commandRoles={create:['owner','admin','operator'],open:['owner','admin','operator'],review:['owner','admin','operator'],snapshot:['owner','admin','operator'],pause:['owner','admin','operator'],release:['owner','admin','operator'],fund:['owner','admin'],distribute:['owner','admin']};
-const publicCampaign=c=>Object.fromEntries(['id','company','name','description','token','status','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','distribution','snapshotAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]));
+export const permissions=role=>({campaigns:['owner','admin','operator'].includes(role),treasury:['owner','admin'].includes(role),team:['owner','admin'].includes(role),lifecycle:['owner','admin'].includes(role),owner:role==='owner'});
+const commandRoles={'edit-campaign':['owner','admin','operator'],'delete-draft':['owner','admin'],'restore-draft':['owner','admin'],'archive-campaign':['owner','admin'],create:['owner','admin','operator'],open:['owner','admin','operator'],review:['owner','admin','operator'],snapshot:['owner','admin','operator'],pause:['owner','admin','operator'],release:['owner','admin','operator'],fund:['owner','admin'],distribute:['owner','admin']};
+const publicCampaign=c=>Object.fromEntries(['id','company','name','description','token','status','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','snapshotAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]));
 const projectHolder=(h,accountId)=>{const {accountId:owner,...safe}=h;return {...safe,self:owner===accountId};};
-const teamGuard=`EXISTS (SELECT 1 FROM cc_memberships actor WHERE actor.organization_id=$1 AND actor.account_id=$2 AND (actor.role='owner' OR (actor.role='admin' AND $3<>'admin'))) AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$2 AND status='suspended') AND NOT EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$1 AND status='suspended')`;
+const teamGuard=`EXISTS (SELECT 1 FROM cc_memberships actor WHERE actor.organization_id=$1 AND actor.account_id=$2 AND (actor.role='owner' OR (actor.role='admin' AND $3<>'admin'))) AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$2 AND (status='suspended' OR archived=1)) AND NOT EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$1 AND status='suspended')`;
 
 export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
   const query=(sql,values=[])=>DB.query(sql,values);
@@ -58,6 +58,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
     }
     await query('UPDATE cc_accounts SET email=$1,name=$2 WHERE id=$3',[user.email.trim().toLowerCase(),user.name||'',accountId]);
     await governance.checkAccount(identity);
+    if(!account)await governance.acceptAccountInvitations(identity);
     return one('SELECT * FROM cc_accounts WHERE id=$1',[accountId]);
   }
   async function organizations(accountId) {
@@ -97,7 +98,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       state.holders=state.holders.map(h=>projectHolder(h,identity.accountId));
       const approval=await governance.status(id),approved=approval.status==='approved',suspended=approval.status==='suspended';
       const grants=permissions(row.role);
-      context={mode,organizationId:id,role:row.role,approvalStatus:approval.status,listed:approval.visible===1,permissions:{...grants,campaigns:grants.campaigns&&!suspended,publish:grants.campaigns&&approved,treasury:grants.treasury&&approved,team:grants.team&&!suspended}};
+      context={mode,organizationId:id,role:row.role,approvalStatus:approval.status,listed:approval.visible===1,permissions:{...grants,campaigns:grants.campaigns&&!suspended,publish:grants.campaigns&&approved,treasury:grants.treasury&&approved,team:grants.team&&!suspended,lifecycle:grants.lifecycle&&!suspended}};
       const controls=await query('SELECT campaign_id,visible,paused FROM cc_campaign_controls WHERE organization_id=$1',[id]);
       state.campaigns=state.campaigns.map(c=>({...c,platform:{companyStatus:approval.status,listed:approval.visible===1,...(controls.find(p=>p.campaign_id===c.id)||{visible:1,paused:0})}}));
       revision=row.revision;
@@ -108,7 +109,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       for(const row of all) {
         const data=parse(row),mine=data.holders.filter(h=>h.accountId===identity.accountId);
         const moderation=c=>controls.find(p=>p.organization_id===row.id&&p.campaign_id===c.id)||{visible:1,paused:0};
-        const visible=data.campaigns.filter(c=>(row.approval_status==='approved'&&row.visible===1&&moderation(c).visible===1&&!['draft','closed'].includes(c.status))||mine.some(h=>h.campaign===c.id));
+        const visible=data.campaigns.filter(c=>(row.approval_status==='approved'&&row.visible===1&&moderation(c).visible===1&&!['draft','closed','archived','deleted'].includes(c.status))||mine.some(h=>h.campaign===c.id));
         if(!visible.length)continue;
         state.companies.push(JSON.parse(row.company));state.campaigns.push(...visible.map(c=>({...publicCampaign(c),platform:{companyStatus:row.approval_status,listed:row.visible===1,...moderation(c)}})));
         state.holders.push(...mine.map(h=>projectHolder(h,identity.accountId)));
@@ -158,7 +159,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
   async function accept(identity,account,cmd) {
     const nonce=randomUUID();
     const results=await DB.transaction([
-      statement("UPDATE cc_invitations SET status='accepted',accepted_by=$1,accept_nonce=$2 WHERE id=$3 AND email=$4 AND status='pending' AND expires_at>$5 AND NOT EXISTS (SELECT 1 FROM cc_company_status s WHERE s.organization_id=cc_invitations.organization_id AND s.status='suspended') AND NOT EXISTS (SELECT 1 FROM cc_account_controls c WHERE c.account_id=cc_invitations.invited_by AND c.status='suspended') RETURNING organization_id",[identity.accountId,nonce,cmd.invitationId,account.email,at()]),
+      statement("UPDATE cc_invitations SET status='accepted',accepted_by=$1,accept_nonce=$2 WHERE id=$3 AND email=$4 AND status='pending' AND expires_at>$5 AND NOT EXISTS (SELECT 1 FROM cc_company_status s WHERE s.organization_id=cc_invitations.organization_id AND s.status='suspended') AND NOT EXISTS (SELECT 1 FROM cc_account_controls c WHERE c.account_id=cc_invitations.invited_by AND (c.status='suspended' OR c.archived=1)) RETURNING organization_id",[identity.accountId,nonce,cmd.invitationId,account.email,at()]),
       statement("INSERT INTO cc_memberships (organization_id,account_id,role,created_at) SELECT organization_id,$1,role,$2 FROM cc_invitations WHERE id=$3 AND accept_nonce=$4 AND status='accepted' AND accepted_by=$1 ON CONFLICT (organization_id,account_id) DO NOTHING",[identity.accountId,at(),cmd.invitationId,nonce]),
       statement("UPDATE cc_accounts SET onboarded=1 WHERE id=$1 AND EXISTS (SELECT 1 FROM cc_invitations WHERE id=$2 AND accept_nonce=$3)",[identity.accountId,cmd.invitationId,nonce]),
       statement('INSERT INTO cc_team_audit (id,organization_id,actor_id,action,detail,created_at) SELECT $1,organization_id,$2,$3,$4,$5 FROM cc_invitations WHERE id=$6 AND accept_nonce=$7',[randomUUID(),identity.accountId,'Invitation accepted',account.email,at(),cmd.invitationId,nonce])
@@ -183,7 +184,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       requireValue(roles.includes(cmd.role),'Select a valid member role.');
       requireValue(row.role==='owner'||cmd.role!=='admin','Only the owner can appoint administrators.',403);
     }
-    const guard=`EXISTS (SELECT 1 FROM cc_memberships actor WHERE actor.organization_id=$1 AND actor.account_id=$2 AND (actor.role='owner' OR (actor.role='admin' AND cc_memberships.role<>'admin' AND $4<>'admin'))) AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$2 AND status='suspended') AND NOT EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$1 AND status='suspended')`;
+    const guard=`EXISTS (SELECT 1 FROM cc_memberships actor WHERE actor.organization_id=$1 AND actor.account_id=$2 AND (actor.role='owner' OR (actor.role='admin' AND cc_memberships.role<>'admin' AND $4<>'admin'))) AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$2 AND (status='suspended' OR archived=1)) AND NOT EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$1 AND status='suspended')`;
     const sql=cmd.type==='remove-member'?`DELETE FROM cc_memberships WHERE organization_id=$1 AND account_id=$3 AND role<>'owner' AND account_id<>$2 AND ${guard} RETURNING account_id`:`UPDATE cc_memberships SET role=$4 WHERE organization_id=$1 AND account_id=$3 AND role<>'owner' AND account_id<>$2 AND ${guard} RETURNING account_id`;
     const rows=await DB.mutateWithAudit(statement(sql,[row.id,identity.accountId,cmd.memberId,cmd.role||'viewer']),teamAudit(row.id,identity.accountId,cmd.type==='remove-member'?'Member removed':'Member role changed',`${target.email}${cmd.role?' · '+cmd.role:''}`));
     requireValue(rows.length,'Your company access has changed.',403);
@@ -219,8 +220,9 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       const campaignRef=cmd.campaignId||(cmd.type==='review'?current.holders.find(h=>h.id===cmd.holderId)?.campaign:null)||'';
       const moderation=campaignRef?await one('SELECT * FROM cc_campaign_controls WHERE organization_id=$1 AND campaign_id=$2',[row.id,campaignRef]):null;
       requireValue(approval.status!=='suspended','Company operations are suspended.',403);
-      if(cmd.type!=='create')requireValue(approval.status==='approved','The company must be activated by the platform team first.',403);
-      if(moderation?.paused===1)requireValue(cmd.type==='wallet','This campaign has been paused by the platform.',403);
+      const management=['create','edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type);
+      if(!management)requireValue(approval.status==='approved','The company must be activated by the platform team first.',403);
+      if(moderation?.paused===1)requireValue(cmd.type==='wallet'||management,'This campaign has been paused by the platform.',403);
       if(cmd.type==='verify'){
         requireValue(approval.visible===1&&moderation?.visible!==0,'This campaign is not accepting public registrations.',403);
         requireValue((await governance.settings()).shareholder_registrations===1,'New shareholder registrations are currently paused.',403);
@@ -230,11 +232,21 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       if(cmd.campaignId)requireValue(current.campaigns.some(c=>c.id===cmd.campaignId&&c.company===row.id),'Campaign unavailable.',403);
       if(isShareholder)requireValue(current.campaigns.some(c=>c.id===cmd.campaignId&&c.status!=='draft'),'Campaign unavailable.',403);
       if(cmd.type==='review')requireValue(current.holders.some(h=>h.id===cmd.holderId),'Shareholder unavailable.',403);
+      if(['edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type)){
+        const campaign=current.campaigns.find(c=>c.id===cmd.campaignId);
+        requireValue(campaign&&Number.isInteger(cmd.campaignRevision)&&cmd.campaignRevision===(campaign.revision||0),'The campaign changed. Reload before updating it.',409);
+      }
       const next=domainCommand(current,cmd,now(),{accountId:identity.accountId,profile:JSON.parse(account.profile)});
       if(next.activity[0]?.id!==current.activity[0]?.id)next.activity[0]={...next.activity[0],actor:identity.user.email};
-      const guard=(isShareholder?'':` AND EXISTS (SELECT 1 FROM cc_memberships WHERE organization_id=$2 AND account_id=$4 AND role IN (${allowed.map(role=>`'${role}'`).join(',')}))`)+` AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$4 AND status='suspended') AND EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$2 AND ${cmd.type==='create'?"status<>'suspended'":"status='approved'"}${cmd.type==='verify'?' AND visible=1':''})${cmd.type==='wallet'?'':" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND paused=1)"}${cmd.type==='verify'?" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND visible=0) AND EXISTS (SELECT 1 FROM cc_portal_settings WHERE id='portal' AND shareholder_registrations=1)":''}`;
-      const values=[json(next),row.id,row.revision,identity.accountId];if(cmd.type!=='wallet')values.push(campaignRef);
-      const result=await query(`UPDATE cc_organizations SET data=$1,revision=revision+1 WHERE id=$2 AND revision=$3${guard} RETURNING revision`,values);
+      const guard=(isShareholder?'':` AND EXISTS (SELECT 1 FROM cc_memberships WHERE organization_id=$2 AND account_id=$4 AND role IN (${allowed.map(role=>`'${role}'`).join(',')}))`)+` AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$4 AND (status='suspended' OR archived=1)) AND EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$2 AND ${management?"status<>'suspended'":"status='approved'"}${cmd.type==='verify'?' AND visible=1':''})${cmd.type==='wallet'||management?'':" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND paused=1)"}${cmd.type==='verify'?" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND visible=0) AND EXISTS (SELECT 1 FROM cc_portal_settings WHERE id='portal' AND shareholder_registrations=1)":''}`;
+      const values=[json(next),row.id,row.revision,identity.accountId];if(cmd.type!=='wallet'&&!management)values.push(campaignRef);
+      const update=statement(`UPDATE cc_organizations SET data=$1,revision=revision+1 WHERE id=$2 AND revision=$3${guard} RETURNING revision`,values);
+      const audited=['edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type);
+      const detail={campaign:campaignRef,name:next.campaigns.find(c=>c.id===campaignRef)?.name,action:cmd.type,...(cmd.input?{fields:Object.keys(cmd.input)}:{})};
+      const result=audited?await DB.atomicChange(update,[
+        governance.audit(identity.accountId,'Campaign '+cmd.type,'company',row.id,detail),
+        statement('INSERT INTO cc_team_audit (id,organization_id,actor_id,action,detail,created_at) SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS (SELECT 1 FROM changed) RETURNING id',[randomUUID(),row.id,identity.accountId,'Campaign '+cmd.type,JSON.stringify(detail),at()])
+      ]):await query(update.sql,update.values);
       if(result.length)return {view:isShareholder?'shareholder':'company',organizationId:isShareholder?undefined:row.id};
     }
     throw new PlatformError('The workspace changed. Reload and try again.',409);

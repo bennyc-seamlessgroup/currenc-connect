@@ -1,10 +1,11 @@
 export type Chain = 'ETH' | 'SOL' | 'BNB';
 export type Campaign = {
   id: string; company: string; name: string; description: string; token: string;
-  status: 'draft' | 'open' | 'locked' | 'paused' | 'closed';
+  status: 'draft' | 'open' | 'locked' | 'paused' | 'closed' | 'archived' | 'deleted';
   mode: 'ratio' | 'pool'; ratio: number; budget: number; minimum: number; cap: number;
   release: number; chains: Chain[]; snapshotDate: string; deadline: string;
   distribution: 'claim' | 'push'; snapshotAt?: string;
+  registrationDeadline?: string; claimDeadline?: string; revision?: number; archivedAt?: string; deletedAt?: string;
 };
 export type Holder = {
   id: string; campaign: string; name: string; shares: number;
@@ -68,6 +69,21 @@ export function allocate(c: Campaign, holders: Holder[]) {
   assert(result.reduce((s, r) => s + r.amount, 0) <= c.budget + 0.000001, 'Allocation exceeds the campaign budget. Adjust the budget or ratio.');
   return result;
 }
+export const registrationEnd = (c: Campaign) => c.registrationDeadline || c.deadline;
+export const claimEnd = (c: Campaign) => c.claimDeadline || c.deadline;
+function dateValue(value: unknown) {
+  assert(typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value), 'Enter valid dates.');
+  const date = new Date(value + 'T00:00:00Z');assert(Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === value, 'Enter valid dates.');return value;
+}
+function campaignSettings(input: Record<string, any>, companies: Company[], today: string) {
+  const company = companies.find(c => c.id === input.company);assert(company, 'Select a company.');
+  assert(input.mode === 'ratio' || input.mode === 'pool', 'Invalid allocation method');
+  assert(input.distribution === 'claim' || input.distribution === 'push', 'Invalid distribution method');
+  assert(Array.isArray(input.chains) && input.chains.length > 0 && input.chains.every((c: string) => ['ETH','SOL','BNB'].includes(c)), 'Select at least one supported network.');
+  const snapshotDate = dateValue(input.snapshotDate), registrationDeadline = dateValue(input.registrationDeadline || input.deadline), claimDeadline = dateValue(input.claimDeadline || input.deadline || registrationDeadline);
+  assert(registrationDeadline >= snapshotDate && registrationDeadline >= today && claimDeadline >= registrationDeadline, 'Registration must end on or after the record date and today; claims must end on or after registration.');
+  return {company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
+}
 export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile']}): State {
   assert(raw && typeof raw === 'object', 'Invalid command');
   const cmd = raw as Record<string, any>;
@@ -78,7 +94,10 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
   const at = now.toISOString();
   const log = (title: string, detail: string, kind: Entry['kind'] = 'success') => { s.activity.unshift({ id: crypto.randomUUID(), at, title, detail, kind }); s.activity = s.activity.slice(0, 100); };
   const campaign = () => { const c = s.campaigns.find(c => c.id === cmd.campaignId); assert(c, 'Campaign not found'); return c; };
-  const beforeDeadline = (c: Campaign) => assert(at.slice(0, 10) <= c.deadline, 'The campaign deadline has passed.');
+  const beforeDeadline = (c: Campaign, claims=false) => assert(at.slice(0,10) <= (claims?claimEnd(c):registrationEnd(c)), claims?'The claim deadline has passed.':'The registration deadline has passed.');
+  const target = s.campaigns.find(c => c.id === (cmd.campaignId || s.holders.find(h => h.id === cmd.holderId)?.campaign));
+  if(target && ['archived','deleted'].includes(target.status))assert(cmd.type === 'restore-draft' && target.status === 'deleted', 'Archived and deleted campaigns are read-only.');
+  if(['edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type))assert(target && Number.isInteger(cmd.campaignRevision) && cmd.campaignRevision === (target.revision || 0), 'The campaign changed. Reload before updating it.');
   switch (cmd.type) {
     case 'reset': return seedState();
     case 'kyc': {
@@ -113,19 +132,46 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
       h.chain = cmd.chain; h.wallet = wallet; log('Demo wallet saved', `${CHAIN_NAMES[h.chain!]} · Address format checked only`); break;
     }
     case 'create': {
-      const input = cmd.input || {}; assert(companies.some(c => c.id === input.company), 'Select a company.');
-      assert(input.mode === 'ratio' || input.mode === 'pool', 'Invalid allocation method');
-      assert(input.distribution === 'claim' || input.distribution === 'push', 'Invalid distribution method');
-      assert(Array.isArray(input.chains) && input.chains.length > 0 && input.chains.every((c: string) => ['ETH','SOL','BNB'].includes(c)), 'Select at least one supported network.');
-      assert(/^\d{4}-\d{2}-\d{2}$/.test(input.snapshotDate) && /^\d{4}-\d{2}-\d{2}$/.test(input.deadline), 'Enter valid dates.');
-      assert(input.deadline >= input.snapshotDate && input.deadline >= at.slice(0, 10), 'The deadline cannot precede the record date or today.');
-      const company = companies.find(c => c.id === input.company)!;
-      s.campaigns.unshift({ id: crypto.randomUUID(), company: input.company, token: company.token, name: label(input.name, 'Campaign name', 70), description: label(input.description, 'Description', 400), status: 'draft', mode: input.mode, ratio: numeric(input.ratio, 'Tokens per share', 0.000001, 1000000), budget: numeric(input.budget, 'Budget', 1, 1000000000), minimum: numeric(input.minimum, 'Minimum shares', 1, 10000000), cap: numeric(input.cap, 'Token cap', 0.000001, 1000000000), release: numeric(input.release, 'Unlock percentage', 0, 100), chains: [...new Set(input.chains)] as Chain[], snapshotDate: input.snapshotDate, deadline: input.deadline, distribution: input.distribution });
-      log('Campaign draft created', `${input.name} · Registration not yet open`); break;
+      const settings = campaignSettings(cmd.input || {}, companies, at.slice(0,10));
+      s.campaigns.unshift({id:crypto.randomUUID(),...settings,status:'draft',revision:0});
+      log('Campaign draft created', `${settings.name} · Registration not yet open`);break;
+    }
+    case 'edit-campaign': {
+      const c = campaign(), input = cmd.input || {};
+      if(c.status === 'draft'){
+        assert(!s.holders.some(h => h.campaign === c.id) && !s.transactions.some(t => t.campaign === c.id), 'A draft with registration or distribution records cannot change its rules.');
+        assert(input.company === c.company, 'A campaign cannot move to another company.');
+        assert(Object.keys(input).every(k => ['company','name','description','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution'].includes(k)), 'Unsupported campaign setting.');
+        Object.assign(c, campaignSettings(input, companies, at.slice(0,10)));
+      }else{
+        const allowed = c.status === 'open' ? ['name','description','registrationDeadline','claimDeadline'] : ['description'];
+        assert(['open','locked','paused'].includes(c.status) && Object.keys(input).every(k => allowed.includes(k)), 'Published reward rules are locked. Create a new campaign to change them.');
+        if(Object.hasOwn(input,'name'))c.name = label(input.name,'Campaign name',70);
+        if(Object.hasOwn(input,'description'))c.description = label(input.description,'Description',400);
+        const registration = Object.hasOwn(input,'registrationDeadline')?dateValue(input.registrationDeadline):registrationEnd(c);
+        const claims = Object.hasOwn(input,'claimDeadline')?dateValue(input.claimDeadline):claimEnd(c);
+        assert(registration >= registrationEnd(c) && claims >= claimEnd(c) && claims >= registration, 'Published deadlines can only be extended; claims must end on or after registration.');
+        c.registrationDeadline=registration;c.claimDeadline=claims;c.deadline=claims;
+      }
+      log('Campaign updated', `${c.name} · ${Object.keys(input).join(', ')}`);break;
+    }
+    case 'delete-draft': {
+      const c=campaign();assert(c.status==='draft' && !s.holders.some(h=>h.campaign===c.id) && !s.transactions.some(t=>t.campaign===c.id), 'Only unused drafts can be deleted. Archive published campaigns instead.');
+      c.status='deleted';c.deletedAt=at;log('Campaign draft deleted', `${c.name} · Can be restored from Deleted`,'warning');break;
+    }
+    case 'restore-draft': {
+      const c=campaign();assert(c.status==='deleted','Only deleted drafts can be restored.');c.status='draft';delete c.deletedAt;log('Campaign draft restored',c.name);break;
+    }
+    case 'archive-campaign': {
+      const c=campaign(),rows=s.holders.filter(h=>h.campaign===c.id);
+      assert(['open','locked','paused','closed'].includes(c.status),'Only published campaigns can be archived.');
+      assert(!(c.status==='open' && rows.length),'Lock the snapshot and settle registered shareholders before archiving.');
+      assert(rows.every(h=>floorToken(h.allocation-h.claimed)<=0),'Settle all allocated rewards before archiving.');
+      c.status='archived';c.archivedAt=at;log('Campaign archived',`${c.name} · Registrations, allocations and transactions retained`);break;
     }
     case 'open': { const c = campaign(); assert(c.status === 'draft', 'Only draft campaigns can be opened.'); beforeDeadline(c); c.status = 'open'; log('Registration opened', c.name); break; }
     case 'snapshot': {
-      const c = campaign(); assert(c.status === 'open', 'The campaign must be open.'); beforeDeadline(c);
+      const c = campaign(); assert(c.status === 'open', 'The campaign must be open.'); beforeDeadline(c,true);
       assert(c.snapshotDate <= at.slice(0, 10), 'The record date has not been reached.');
       const rows = s.holders.filter(h => h.campaign === c.id);
       assert(rows.every(h => h.status !== 'pending'), 'Complete all pending reviews first.');
@@ -138,7 +184,7 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
     case 'fund': { assert(companies.some(c => c.id === cmd.company) && ['ETH','SOL','BNB'].includes(cmd.chain), 'Invalid company or network'); const amount = numeric(cmd.amount, 'Funding amount', 1, 100000000); s.treasury[cmd.company][cmd.chain as Chain] += amount; log('Test funds added', `${cmd.amount.toLocaleString()} ${companies.find(c => c.id === cmd.company)!.token} · ${CHAIN_NAMES[cmd.chain as Chain]}`); break; }
     case 'claim':
     case 'distribute': {
-      const c = campaign(); assert(c.status === 'locked', 'Lock the snapshot and ensure the campaign is not paused.'); beforeDeadline(c);
+      const c = campaign(); assert(c.status === 'locked', 'Lock the snapshot and ensure the campaign is not paused.'); beforeDeadline(c,true);
       assert(cmd.type === 'claim' ? c.distribution === 'claim' : c.distribution === 'push', 'This action is not supported by the distribution method.');
       const rows = s.holders.filter(h => h.campaign === c.id && h.status === 'verified' && (cmd.type === 'distribute' || own(h,c)));
       const ready = rows.filter(h => claimable(c, h) > 0 && h.wallet && h.chain && c.chains.includes(h.chain));
@@ -151,5 +197,6 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
     }
     default: throw new Error('Unsupported command');
   }
+  if(target && ['edit-campaign','delete-draft','restore-draft','archive-campaign','open','snapshot','pause','release'].includes(cmd.type))target.revision=(target.revision||0)+1;
   return s;
 }
