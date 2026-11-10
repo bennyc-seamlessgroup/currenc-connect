@@ -408,8 +408,8 @@ dialog::backdrop { background: #152c2c66; }
 .landing-actions .btn { padding: 15px 23px; font-size: 16px; }
 .landing-how-link { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
 .landing-how-link .icon { width: 16px; height: 16px; }
-.landing-visual { align-self: stretch; min-width: 0; border-radius: 20px; overflow: hidden; background: #eeeae1; }
-.landing-visual img { width: 100%; height: 100%; max-height: 590px; min-height: 460px; display: block; object-fit: cover; }
+.landing-visual { align-self: center; justify-self: end; width: 100%; max-width: 400px; min-width: 0; border-radius: 20px; overflow: hidden; background: #f8f6f2; }
+.landing-visual img { width: 100%; height: auto; display: block; object-fit: contain; }
 .landing-process { padding: 36px 0 50px; border-top: 1px solid var(--line); scroll-margin-top: 24px; }
 .landing-process > h2 { font-size: 27px; letter-spacing: -.7px; margin-bottom: 34px; }
 .landing-process ol { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 40px; list-style: none; margin: 0; padding: 0; }
@@ -426,11 +426,12 @@ dialog::backdrop { background: #152c2c66; }
 .public-campaign-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; margin-bottom: 30px; }
 .public-campaign-heading h2 { font-size: 29px; letter-spacing: -.7px; }
 .public-campaign-heading p { margin-top: 12px; color: #596a63; font-size: 16px; line-height: 1.6; }
-.public-campaign-search { display: flex; gap: 12px; align-items: center; border: 1px solid #d9e1db; border-radius: 7px; padding: 13px 16px; color: #687674; width: 310px; flex-shrink: 0; }
-.public-campaign-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 16px; }
-.public-campaign-search:focus-within { outline: 3px solid #75b9a9; outline-offset: 3px; }
-.public-campaign-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
-.public-campaign-card { padding: 26px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; }
+.campaign-scroll-controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.campaign-scroll-controls[hidden] { display: none; }
+.campaign-scroll-controls .icon-btn { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; color: var(--ink); }
+.campaign-previous .icon { transform: rotate(180deg); }
+.public-campaign-track { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 44px)/3); gap: 22px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 4px; padding: 4px 4px 14px; margin: -4px; scrollbar-width: thin; scrollbar-color: #a7bbb0 transparent; }
+.public-campaign-card { padding: 26px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; scroll-snap-align: start; }
 .public-company { display: flex; align-items: center; gap: 12px; overflow-wrap: anywhere; }
 .public-company > div { min-width: 0; }
 .public-company strong { display: block; font-size: 16px; font-weight: 600; line-height: 1.5; }
@@ -446,7 +447,7 @@ dialog::backdrop { background: #152c2c66; }
 .campaign-empty h3 { font-size: 20px; color: var(--ink); margin-bottom: 10px; }
 .campaign-empty .btn { margin-top: 18px; }
 @media(max-width:900px) {
-  .public-campaign-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .public-campaign-track { grid-auto-columns: calc((100% - 22px)/2); }
   .landing-hero { gap: 40px; }
   .landing-copy h1 { font-size: 56px; }
   .landing-lead { font-size: 21px; }
@@ -455,10 +456,11 @@ dialog::backdrop { background: #152c2c66; }
 }
 @media(max-width:680px) {
   .public-campaigns { padding: 30px 0 38px; }
-  .public-campaign-heading { flex-direction: column; align-items: stretch; gap: 22px; margin-bottom: 24px; }
-  .public-campaign-heading h2 { font-size: 27px; }
-  .public-campaign-search { width: 100%; }
-  .public-campaign-grid { grid-template-columns: 1fr; gap: 18px; }
+  .public-campaign-heading { flex-direction: row; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .public-campaign-heading h2 { font-size: 24px; }
+  .campaign-scroll-controls { gap: 8px; }
+  .public-campaign-track { grid-auto-columns: 90%; gap: 18px; }
+  .public-campaign-track.is-single { grid-auto-columns: 100%; }
   .public-campaign-card { padding: 24px; }
   .public-header { padding: 24px; gap: 16px; }
   .public-header .brand { font-size: 25px; gap: 8px; }
@@ -474,8 +476,7 @@ dialog::backdrop { background: #152c2c66; }
   .landing-lead { margin-top: 24px; font-size: 21px; }
   .landing-detail { font-size: 16px; line-height: 1.7; }
   .landing-actions { gap: 20px; flex-wrap: wrap; }
-  .landing-visual { max-height: 440px; }
-  .landing-visual img { min-height: 0; height: 440px; object-position: center 62%; }
+  .landing-visual { max-width: 310px; justify-self: center; }
   .landing-process { padding: 30px 0 38px; }
   .landing-process > h2 { font-size: 24px; margin-bottom: 28px; }
   .landing-process ol { grid-template-columns: 1fr; gap: 28px; }

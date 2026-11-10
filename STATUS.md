@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 77 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, public campaign privacy/search/login continuity, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
+- 77 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, public campaign privacy/browsing/login continuity, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -52,6 +52,12 @@ Updated: 10 November 2026 (Hong Kong).
 - Selection persists through `?campaign=` and verified sign-in into the shareholder view, including first-time onboarding. Hidden or removed campaigns are rechecked against the authenticated response; URL parameters cannot grant access. The introduction and discovery load independently of the initial session check.
 - All 77 tests, build and asset checks pass. Isolated native-browser QA verified search, public terms, selected-campaign sign-in, first onboarding, returning to the same campaign and sign-out, using simulated local OTP delivery with no outgoing email. Desktop and 390px views have no horizontal overflow; the hero image loaded at its expected resolution and the flow produced no browser errors.
 - Production source `5ae86aa` is Ready (deployment `9MArNPyY1fYoXHct2C8gxqtmf5vq`). Anonymous API verification returned HTTP 200, no-store and only the allowlisted campaign/company fields. Native live verification passed for the existing listed campaign, search, public detail, selection retained into sign-in, hero loading and 390px layout; no Sandbox/Preview display text or browser errors remain on the public page. No live OTP was sent, account/role was changed, or existing company/campaign/funds were modified. The isolated QA server is stopped; the primary localhost server retains the original database.
+
+## Approved vertical hero and campaign row
+
+- Replaced the still life with the exact user-approved stock-holdings card → token-airdrop artwork, optimized as `shareholder-rewards-vertical.jpg` (1024 × 1536). The full image is contained rather than cropped at both desktop and phone sizes, and its new filename avoids stale copies of the old image.
+- Removed campaign search markup, state, filtering and handlers. Public cards now occupy one horizontal scroll-snap row. Native scrolling, focusable keyboard access and previous/next controls support overflow; controls hide when all cards fit and disable at either end. Phone rows with multiple cards reveal the next card, while a single card fits the viewport.
+- All 77 existing tests pass, including the adapted public browsing, escaping and sign-in-continuation regression. Build/asset and whitespace checks pass. Native isolated QA with five synthetic campaigns verified desktop next scrolling, phone horizontal scroll to the end, disabled end control and opening the final campaign. Desktop and 390px phone measurements have no page-level horizontal overflow. Test campaigns remain in memory only and do not enter the live database.
 
 ## Company workspaces and permissions
 

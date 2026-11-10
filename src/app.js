@@ -40,7 +40,7 @@ let access = null; let workspaceContext = null; let teamData = null; let onboard
 let companyApplication=null,platformData=null,accountSuspended=false,platformCompanyId=null,platformListPage=1,platformSearch='',platformAccountFilter='current',accountRemoved=false;
 const invitedEmail=new URLSearchParams(window.location?.search||'').get('email')||'';if(invitedEmail.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail))authEmail=invitedEmail;
 let requestedInvitation = new URLSearchParams(window.location?.search||'').get('invitation');
-let publicCampaigns=null,publicCampaignError='',publicCampaignSearch='',publicCampaignRequest=0;
+let publicCampaigns=null,publicCampaignError='',publicCampaignRequest=0;
 const campaignParameter=new URLSearchParams(window.location?.search||'').get('campaign');
 let requestedCampaign=campaignParameter&&campaignParameter.length<=200?campaignParameter:null;
 let workspaceRuntime = {environment:'Local development',storage:'Local SQLite database',identity:'Shared demo workspace'};
@@ -185,7 +185,7 @@ function teamPage() {
  return `${title('Team',btn(`${icon('plus')}Invite member`,'invite-member','primary'))}<section class="panel table-wrap"><table><thead><tr><th>Member</th><th>Role</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${teamData.members.map(m=>`<tr><td><strong>${esc(m.name||m.email)}</strong>${m.name?`<small>${esc(m.email)}</small>`:''}</td><td>${manageable(m)?`<form id="member-role-${m.id}-form" data-id="${m.id}" class="member-role-form"><select name="role" aria-label="Role for ${esc(m.email)}">${options.map(r=>`<option value="${r}" ${r===m.role?'selected':''}>${r[0].toUpperCase()+r.slice(1)}</option>`).join('')}</select><button class="text-btn" type="submit">Save</button></form>`:esc(m.role[0].toUpperCase()+m.role.slice(1))}</td><td>${manageable(m)?btn('Remove','remove-member','text-btn',`data-id="${m.id}"`):''}</td></tr>`).join('')}</tbody></table></section>${teamData.invitations.length?`<section class="panel table-wrap team-invitations"><div class="panel-head"><h2>Pending invitations</h2></div><table><thead><tr><th>Email</th><th>Role</th><th>Expires</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${teamData.invitations.map(i=>`<tr><td>${esc(i.email)}</td><td>${esc(i.role)}</td><td>${day(i.expires_at)}</td><td><div class="row-actions">${btn('Copy link','copy-invitation','text-btn',`data-id="${i.id}"`)}${workspaceContext.role==='owner'||i.role!=='admin'?btn('Revoke','revoke-invitation','text-btn',`data-id="${i.id}"`):''}</div></td></tr>`).join('')}</tbody></table></section>`:''}<section class="panel activity-panel"><div class="panel-head"><h2>Team activity</h2></div>${activityList(teamData.audit.map(a=>({at:a.created_at,title:a.action,detail:`${a.detail} · ${a.actor}`,kind:'info'})))}</section>`;
 }
 function organizationForm() {if(!access?.platformRole)return;openModal('Add company',`<form id="platform-create-company-form" class="form-grid">${companyFields()}<button class="btn primary span-2" type="submit">Add company</button></form>`);}
-function render(){ $('#app').innerHTML=shell(); }
+function render(){ $('#app').innerHTML=shell();initializeCampaignScroller(); }
 function openModal(title, body, wide=false) {
  const d=$('#dialog'); if(d.open)d.close(); d.className=wide?'wide':'';
  d.innerHTML=`<div class="modal-head"><h2>${title}</h2><button class="icon-btn" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="modal-body">${body}</div>`; d.showModal();
@@ -288,7 +288,8 @@ document.addEventListener('change',async e=>{
  if(e.target.id==='wallet-chain')$('#wallet-address').value=e.target.value==='SOL'?'11111111111111111111111111111111':'0x4444444444444444444444444444444444444444';
  if(e.target.id==='allocation-mode'){const f=e.target.closest('form');f.elements.ratio.disabled=e.target.value==='pool';if(e.target.value==='pool')f.elements.ratio.value='0.1';}
 });
-document.addEventListener('input',e=>{if(e.target.id==='public-campaign-search'){publicCampaignSearch=e.target.value;$('#public-campaign-results').innerHTML=publicCampaignCards();return;}if(e.target.id==='search'){search=e.target.value;const start=e.target.selectionStart;render();$('#search').focus();$('#search').setSelectionRange(start,start);}});
+document.addEventListener('input',e=>{if(e.target.id==='search'){search=e.target.value;const start=e.target.selectionStart;render();$('#search').focus();$('#search').setSelectionRange(start,start);}});
 $('#dialog').addEventListener('click', e=>{if(e.target===$('#dialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal();}});
 window.addEventListener('focus',()=>{if(state&&!busy&&!$('#dialog').open)load();else if(authRequired&&authView==='landing')loadPublicCampaigns();});
+window.addEventListener('resize',syncCampaignScroller);
 render();load();loadPublicCampaigns();

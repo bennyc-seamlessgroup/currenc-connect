@@ -131,7 +131,7 @@ test('UI: public introduction explains share-based airdrops and preserves invita
  assert.match(landing,/each campaign’s rules determine your token allocation/);
  assert.match(landing,/id="main"/);assert.match(landing,/id="how-it-works"/);
  assert.doesNotMatch(landing,/sandbox|preview|airdrop-illustration/i);
- assert.match(landing,/images\/shareholder-rewards.jpg/);assert.match(landing,/Current campaigns/);
+ assert.match(landing,/images\/shareholder-rewards-vertical.jpg/);assert.match(landing,/Current campaigns/);
  assert.doesNotMatch(landing,/demo@example.com|Company workspace|login-email-form/);
  await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
  await h.submit('login-email-form',{email:'invited@example.com'});
@@ -151,7 +151,7 @@ async function staffCompany(DB,platform,actor,name='Company'){
  await DB.query("DELETE FROM cc_platform_admins WHERE account_id=$1 AND role='admin'",[actor.accountId]);return {view:'company',organizationId:selected.organizationId};
 }
 
-test('UI: visitors find a public campaign, search safely and resume it after verified login and first onboarding',async t=>{
+test('UI: visitors browse public campaigns and resume their selection after verified login and first onboarding',async t=>{
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),owner=platformActor('owner');
  const selected=await staffCompany(DB,platform,owner,'<svg onload=alert(1)>');
  await DB.query("UPDATE cc_company_status SET status='approved',visible=1 WHERE organization_id=$1",[selected.organizationId]);
@@ -161,8 +161,8 @@ test('UI: visitors find a public campaign, search safely and resume it after ver
  for(const actor of [owner,platformActor('new-shareholder')]){
   const h=harness({requiresLogin:true,platform,actor,publicDatabase:DB});await h.start();
   assert.match(h.nodes['#app'].innerHTML,/Welcome &lt;img/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<svg onload|<img src=x>/);
-  h.handlers.input({target:{id:'public-campaign-search',value:'does not exist'}});assert.match(h.nodes['#public-campaign-results'].innerHTML,/No matching campaigns/);
-  await h.click('public-clear-search');assert.match(h.nodes['#public-campaign-results'].innerHTML,/Welcome &lt;img/);
+  assert.doesNotMatch(h.nodes['#app'].innerHTML,/public-campaign-search|Clear search/);
+  assert.match(h.nodes['#app'].innerHTML,/role="region" aria-label="Campaign cards" tabindex="0"/);
   await h.click('public-campaign',{id});assert.match(h.nodes['#dialog'].innerHTML,/Sign in to continue/);
   await h.click('public-start',{id});assert.equal(vm.runInContext('requestedCampaign',h.context),id);
   await h.submit('login-email-form',{email:actor.user.email});await h.submit('login-code-form',{code:'123456'});

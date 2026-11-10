@@ -8,7 +8,7 @@ const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
  '/styles.css':{type:'text/css; charset=utf-8',body:await readFile('src/styles.css','utf8')},
  '/app.js':{type:'text/javascript; charset=utf-8',body:domain+'\n'+app},
- '/images/shareholder-rewards.jpg':{type:'image/jpeg',base64:true,body:(await readFile('src/assets/landing/shareholder-rewards.jpg')).toString('base64')},
+ '/images/shareholder-rewards-vertical.jpg':{type:'image/jpeg',base64:true,body:(await readFile('src/assets/landing/shareholder-rewards-vertical.jpg')).toString('base64')},
  '/favicon.svg':{type:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#101f29"/><g stroke="#d8ec90" stroke-width="3" fill="none" stroke-linecap="round"><path d="M27 12a12 12 0 1 0 0 24 M34 12a12 12 0 1 0 0 24 M17 24h21"/></g></svg>'}
 };
 await rm('dist',{recursive:true,force:true});await mkdir('dist/server',{recursive:true});await mkdir('dist/client',{recursive:true});await mkdir('dist/.openai',{recursive:true});
@@ -38,7 +38,7 @@ async function offlineFetch(_url, options) {
 }
 `;
 const offlineApp=app.replaceAll("fetch('/api/workspace'","offlineFetch('/api/workspace'")
- .replaceAll('/images/shareholder-rewards.jpg','data:image/jpeg;base64,'+assets['/images/shareholder-rewards.jpg'].body)
+ .replaceAll('/images/shareholder-rewards-vertical.jpg','data:image/jpeg;base64,'+assets['/images/shareholder-rewards-vertical.jpg'].body)
   .replace('this demo workspace', 'this offline demo workspace')
  .replace('Data is saved in your workspace database.', 'Data is saved in this browser only.');
 let offline=assets['/'].body.replace('<link rel="stylesheet" href="/styles.css">','<style>'+assets['/styles.css'].body+'</style>')
