@@ -35,7 +35,7 @@ function englishWorkspace(saved) {
 }
 let state = null;
 let workspaceRequest = 0;
-let currentUser = null; let authRequired = false; let authStep = 'email'; let authEmail = ''; let authError = ''; let authWorking = false; let resendAt = 0;
+let currentUser = null; let authRequired = false; let authView = 'landing'; let authStep = 'email'; let authEmail = ''; let authError = ''; let authWorking = false; let resendAt = 0;
 let access = null; let workspaceContext = null; let teamData = null; let onboardingCompany = false;
 let companyApplication=null,platformData=null,accountSuspended=false,platformCompanyId=null,platformListPage=1,platformSearch='',platformAccountFilter='current',accountRemoved=false;
 const invitedEmail=new URLSearchParams(window.location?.search||'').get('email')||'';if(invitedEmail.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail))authEmail=invitedEmail;
@@ -60,6 +60,7 @@ const btn = (text, action, cls='', data='') => `<button class="btn ${cls}" data-
 const empty = (title, text, ico='box') => `<div class="empty">${icon(ico)}<h3>${title}</h3>${text?`<p>${text}</p>`:''}</div>`;
 function toast(message, fail=false) { const e = $('#toast'); e.className = `toast show ${fail?'fail':''}`; e.textContent = message; clearTimeout(window.toastTimer); window.toastTimer=setTimeout(()=>e.classList.remove('show'),4500); }
 function lockWorkspace() {
+ if(currentUser||state)authView='sign-in';
  workspaceRequest++;state=null;currentUser=null;access=null;workspaceContext=null;teamData=null;companyApplication=null;platformData=null;accountSuspended=false;accountRemoved=false;authRequired=true;navOpen=false;page='overview';search='';filter='all';closeModal();$('#dialog').innerHTML='';$('#toast').className='toast';$('#toast').textContent='';
 }
 function receive(data) {
@@ -81,8 +82,9 @@ async function load(selection=null) {
  }catch(e){error=e.message;}render();
 }
 function loginPage() {
+ if(authView==='landing')return landingPage();
  const codeStep=authStep==='code';
- return `<main class="auth-page"><div class="auth-wrap"><div class="brand auth-brand">${logo}<span>currenc<span class="brand-sub">CONNECT</span></span></div><section class="auth-card"><h1>${codeStep?'Check your email':'Sign in'}</h1><p class="auth-intro">${codeStep?`Enter the code sent to <strong>${esc(authEmail)}</strong>.`:'Access the same workspace on every device.'}</p><form id="${codeStep?'login-code-form':'login-email-form'}" class="auth-form">${codeStep?field('Verification code','<input id="login-code" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code">'):field('Email address',`<input name="email" type="email" required maxlength="254" autocomplete="email" autocapitalize="off" value="${esc(authEmail)}" placeholder="you@company.com">`)}${authError?`<p class="auth-error" role="alert">${esc(authError)}</p>`:''}<button type="submit" class="btn primary full" ${authWorking?'disabled':''}>${authWorking?'Please wait…':codeStep?'Sign in':'Continue with email'}</button></form>${codeStep?`<div class="auth-links"><button class="text-btn" data-action="auth-back" ${authWorking?'disabled':''}>Use another email</button><button id="resend-code" class="text-btn" data-action="resend-code" ${authWorking||Date.now()<resendAt?'disabled':''}>Resend code</button></div>`:''}</section><p class="auth-footnote">${codeStep?'Codes expire shortly and can only be used once.':'New here? Verifying your email creates your account.'}</p></div></main>`;
+ return `<div class="public-page">${publicHeader(false)}<main id="main" class="public-sign-in"><div class="sign-in-context"><p class="landing-eyebrow">Shareholder token airdrops</p><h1>Your shares.<br>Your next reward.</h1><p>Sign in to explore participating companies, register your holdings and track your token allocation.</p></div><div class="auth-wrap"><section class="auth-card" aria-labelledby="sign-in-title"><h2 id="sign-in-title">${codeStep?'Check your email':'Sign in or get started'}</h2><p class="auth-intro">${codeStep?`Enter the code sent to <strong>${esc(authEmail)}</strong>.`:'Use your email to access your shareholder or company workspace.'}</p><form id="${codeStep?'login-code-form':'login-email-form'}" class="auth-form">${codeStep?field('Verification code','<input id="login-code" name="code" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code">'):field('Email address',`<input id="login-email" name="email" type="email" required maxlength="254" autocomplete="email" autocapitalize="off" value="${esc(authEmail)}" placeholder="you@example.com">`)}${authError?`<p class="auth-error" role="alert">${esc(authError)}</p>`:''}<button type="submit" class="btn primary full" ${authWorking?'disabled':''}>${authWorking?'Please wait…':codeStep?'Sign in':'Continue with email'}</button></form>${codeStep?`<div class="auth-links"><button class="text-btn" data-action="auth-back" ${authWorking?'disabled':''}>Use another email</button><button id="resend-code" class="text-btn" data-action="resend-code" ${authWorking||Date.now()<resendAt?'disabled':''}>Resend code</button></div>`:''}</section><p class="auth-footnote">${codeStep?'Codes expire shortly and can only be used once.':'New here? Verifying your email creates your account.'}</p></div></main>${publicFooter()}</div>`;
 }
 async function authRequest(action,body) {
  const response=await fetch('/api/auth?action='+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -91,16 +93,16 @@ async function authRequest(action,body) {
 async function sendCode(email) {
  if(authWorking)return;authWorking=true;authEmail=email.trim().toLowerCase();authError='';render();
  try {await authRequest('send-code',{email:authEmail});authStep='code';resendAt=Date.now()+60000;setTimeout(()=>{const button=$('#resend-code');if(authRequired&&button)button.disabled=false;},60000);}
- catch(e){authError=e.message;}finally{authWorking=false;render();}
+ catch(e){authError=e.message;}finally{authWorking=false;render();if(authRequired)$(authStep==='code'?'#login-code':'#login-email')?.focus();}
 }
 async function verifyCode(code) {
  if(authWorking)return;authWorking=true;authError='';render();
  try {await authRequest('verify-code',{email:authEmail,code});authStep='email';authEmail='';await load();}
- catch(e){authError=e.message;}finally{authWorking=false;render();}
+ catch(e){authError=e.message;}finally{authWorking=false;render();if(authRequired)$(authStep==='code'?'#login-code':'#login-email')?.focus();}
 }
 async function signOut() {
  if(authWorking)return;authWorking=true;
- try {await authRequest('sign-out',{});lockWorkspace();authStep='email';authEmail='';authError='';}
+ try {await authRequest('sign-out',{});lockWorkspace();authView='landing';authStep='email';authEmail='';authError='';}
  catch(e){toast(e.message,true);}finally{authWorking=false;render();}
 }
 async function command(cmd, message='Changes saved', close=true) {
@@ -111,6 +113,7 @@ function shell() {
  if(accountRemoved)return `<main class="auth-page"><div class="auth-wrap"><section class="auth-card"><h1>Portal access removed</h1><p class="auth-intro">Contact the platform administrator to restore access.</p>${btn('Sign out','sign-out','primary full')}</section></div></main>`;
  if(accountSuspended)return suspendedAccountPage();
  if(authRequired)return loginPage();
+ if(!state&&!access)return `<main id="main" class="auth-page"><div class="auth-wrap"><div class="brand auth-brand">${logo}<span>currenc<span class="brand-sub">CONNECT</span></span></div>${error?`<section class="auth-card">${empty('Unable to load Currenc Connect',esc(error),'refresh')}${btn('Try again','reload','primary full')}</section>`:'<p class="loading" role="status">Loading Currenc Connect…</p>'}</div></main>`;
  if(access&&!access.onboarded&&mode!=='platform')return onboardingPage();
  const nav=mode==='platform'?[['overview','grid','Platform overview'],['platform-companies','users','Companies'],['platform-accounts','users','Accounts'],['portal-settings','settings','Portal settings'],['platform-audit','clock','Audit log']]:mode==='company' ? [['overview','grid','Overview'],['campaigns','send','Campaigns'],['shareholders','users','Shareholders'],['treasury','wallet','Treasury'],['reports','chart','Distributions']] : [['overview','globe','Companies'],['rewards','spark','My rewards'],['profile','shield','Identity & wallets']];
  if(access&&mode==='company'&&can('team'))nav.push(['team','users','Team']);
@@ -208,7 +211,9 @@ function createForm() {campaignEditor();}
 function csvDownload(name, header, rows) { const cell=v=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}; const b=new Blob(['\uFEFF'+[header,...rows].map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);toast('CSV exported');}
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-action]'); if(!b||busy||authWorking)return; const a=b.dataset.action,id=b.dataset.id,c=state?.campaigns.find(c=>c.id===id); e.preventDefault();
- if(a==='auth-back'){authStep='email';authError='';render();return;}
+ if(a==='auth-start'){authView='sign-in';authStep='email';authError='';render();window.scrollTo({top:0});$('#login-email')?.focus();return;}
+ if(a==='auth-home'){authView='landing';authStep='email';authError='';render();window.scrollTo({top:0});$('#landing-title')?.focus();return;}
+ if(a==='auth-back'){authStep='email';authError='';render();$('#login-email')?.focus();return;}
  if(a==='resend-code'){if(Date.now()>=resendAt)await sendCode(authEmail);return;}
  if(a==='sign-out'){await signOut();return;}
  if(await portalClick(a,b.dataset))return;

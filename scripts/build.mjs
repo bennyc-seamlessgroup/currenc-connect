@@ -2,7 +2,7 @@ import {readFile,writeFile,mkdir,rm,cp} from 'node:fs/promises';
 import {stripTypeScriptTypes} from 'node:module';
 const domain=stripTypeScriptTypes(await readFile('lib/domain.ts','utf8'));
 const chainLogos=Object.fromEntries(await Promise.all([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(async([chain,file])=>[chain,'data:image/svg+xml;base64,'+(await readFile(`src/assets/chains/${file}.svg`)).toString('base64')])));
-const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8');
+const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8');
 const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
  '/styles.css':{type:'text/css; charset=utf-8',body:await readFile('src/styles.css','utf8')},

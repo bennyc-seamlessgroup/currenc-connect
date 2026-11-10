@@ -16,7 +16,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 ## Verification
 
-- 71 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
+- 72 automated tests pass, covering the complete demo flow, cross-chain allocation, concurrent claims, account login, public introduction and invitation context, company/platform role separation, private evidence, stale/concurrent reviews, portal controls, suspension and role-aware UI behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
 
@@ -36,6 +36,12 @@ Updated: 10 November 2026 (Hong Kong).
 - Sign-out was verified in the independent browser: it returned to an enabled email login form and hid the workspace. Chrome retained its own valid session after reload and still displayed the saved 25,001 test balance.
 - Live API checks return 401 without a verified account, 403 for cross-origin sign-out, and 400 for an invalid code. A forged caller identity and the previous anonymous cookie cannot unlock a workspace.
 - Login layout was checked at 390 × 844 with no horizontal overflow. Regression coverage also confirms that sign-out clears private dialogs and leaves the login button ready for a new sign-in. Live session responses explicitly return `Cache-Control: no-store`.
+
+## Public introduction and sign-in entry
+
+- Signed-out visitors see an English service introduction before any email form: company token airdrops based on eligible real shareholdings, the role of campaign rules, three participation steps and a clear sandbox status. Get started / Sign in opens the existing email-code login; authenticated users keep their normal workspace flow.
+- Added `src/landing-ui.js`, responsive layouts and public-page metadata. The sign-in form retains invitation-email context, resend/back/error handling and keyboard focus. Sign-out returns to the introduction; expired workspace sessions clear private state and return to sign-in. Initial session loading no longer shows placeholder company navigation or a demo identity.
+- All 72 tests, build/asset checks and whitespace checks pass. Native-browser local QA passed for introduction → email → invalid code/retry → successful login → sign-out, plus invitation navigation coverage in the UI regression suite. Local browser OTP delivery is simulated in an isolated in-memory preview; no test emails are sent or production identities created. Desktop and 390 × 844 introduction/sign-in views have no page-level horizontal overflow.
 
 ## Company workspaces and permissions
 

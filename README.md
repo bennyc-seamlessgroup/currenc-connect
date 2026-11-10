@@ -2,6 +2,8 @@
 
 A shareholder rewards platform with company workspaces, teams and individual investor accounts. English is the current interface language; Chinese selection will be added later.
 
+Signed-out visitors first see a public service introduction explaining company token airdrops based on eligible shareholdings. **Get started** or **Sign in** opens the existing email-code flow; **Back to introduction** returns without losing an invitation's email context. Signed-in accounts continue to their workspace. The public page explicitly identifies verification and distributions as simulated in the current sandbox.
+
 ## Run locally
 
 ```sh
@@ -50,7 +52,7 @@ Platform administrators are separate from company owners/admins. The **Platform 
 1. Open **Companies → Add company** and enter its name, ticker and test token symbol.
 2. Enter or edit legal, registration, jurisdiction, website, address and contact information; press **Save company information**. Additional registration details are optional and can be completed by the team over time. Supplied website/email fields are validated.
 3. Use **List on portal** when ready. A company appears to shareholders only when it is active, listed and has a published, visible campaign.
-4. Appoint an existing registered account under **Company administrators**, or use the company Team invitation flow.
+4. Appoint an existing registered account under **Company access**, or use the company Team invitation flow.
 
 Platform staff can deactivate/activate, suspend/restore, hide/list companies and moderate campaign visibility or payouts, with recorded reasons and revision checks. Activation does not require an applicant, uploaded evidence or a submission. Newly created companies and restored companies remain hidden until explicitly listed. Existing inactive companies retain that state until staff activate them. Existing allocations, balances, transactions, memberships and historical submission/file records are preserved. Editing a company name/ticker also updates its business metadata without replacing its ledger; the test token symbol is fixed after creation.
 

@@ -9,15 +9,15 @@ import {createPlatform} from '../server/platform.mjs';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
-const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8');
-function harness({requiresLogin=false,platform=null,actor=null}={}){
+const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8');
+function harness({requiresLogin=false,platform=null,actor=null,search=''}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
  const context=vm.createContext({console,crypto,structuredClone,setTimeout:()=>1,clearTimeout(){},Blob,URL,URLSearchParams,
   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
   document:{querySelector:node,addEventListener:(k,v)=>handlers[k]=v,body:{classList:{add(){},remove(){}}}},
-  window:{addEventListener(){},scrollTo(){}},
+  window:{location:{search,href:'https://test.local/'+search},addEventListener(){},scrollTo(){}},
   FormData:class{constructor(f){this.entries=Object.entries(f.fields||{});}*[Symbol.iterator](){yield* this.entries;}getAll(k){return this.entries.filter(([a])=>a===k).map(([,v])=>v);}},
   fetch:async(_url,options)=>{
    if(_url.startsWith('/api/auth')) {
@@ -87,8 +87,11 @@ test('UI: mobile navigation closes after a page is selected',async()=>{
 
 test('UI: email code login unlocks the workspace; logout removes private state and dialogs',async()=>{
  const h=harness({requiresLogin:true});await h.start();
- assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
+ assert.match(h.nodes['#app'].innerHTML,/Real shares\./);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/login-email-form/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/New campaign/);
+ await h.click('auth-start');
+ assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
  await h.submit('login-email-form',{email:'owner@example.com'});
  assert.match(h.nodes['#app'].innerHTML,/login-code-form/);
  await h.submit('login-code-form',{code:'000000'});
@@ -98,15 +101,18 @@ test('UI: email code login unlocks the workspace; logout removes private state a
  assert.match(h.nodes['#app'].innerHTML,/Sign out/);
  await h.click('create');assert.ok(h.nodes['#dialog'].open);
  await h.click('sign-out');
- assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
+ assert.match(h.nodes['#app'].innerHTML,/Real shares\./);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/login-email-form/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/<button\b[^>]*disabled/);
+ await h.click('auth-start');
  assert.match(h.nodes['#app'].innerHTML,/Continue with email/);
  assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
 });
 
 test('UI: expired account session closes the workspace rather than showing stale data',async()=>{
  const h=harness({requiresLogin:true});await h.start();
+ await h.click('auth-start');
  await h.submit('login-email-form',{email:'owner@example.com'});
  await h.submit('login-code-form',{code:'123456'});
  await h.click('kyc');h.expire();
@@ -114,6 +120,24 @@ test('UI: expired account session closes the workspace rather than showing stale
  assert.match(h.nodes['#app'].innerHTML,/login-email-form/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/Account owner/);
  assert.equal(h.nodes['#dialog'].innerHTML,'');
+});
+
+test('UI: public introduction explains share-based airdrops and preserves invitation context through sign-in navigation',async()=>{
+ const h=harness({requiresLogin:true,search:'?email=invited%40example.com&invitation=company-link'});await h.start();
+ const landing=h.nodes['#app'].innerHTML;
+ assert.match(landing,/real shares you hold/);
+ assert.match(landing,/each campaign’s rules determine your token allocation/);
+ assert.match(landing,/id="main"/);assert.match(landing,/id="how-it-works"/);
+ assert.match(landing,/verification and token distributions are simulated/);
+ assert.doesNotMatch(landing,/demo@example.com|Company workspace|login-email-form/);
+ await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
+ await h.submit('login-email-form',{email:'invited@example.com'});
+ assert.match(h.nodes['#app'].innerHTML,/login-code-form/);
+ await h.click('auth-back');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
+ await h.click('auth-home');assert.match(h.nodes['#app'].innerHTML,/Real shares\./);
+ await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/value="invited@example.com"/);
+ assert.equal(vm.runInContext('requestedInvitation',h.context),'company-link');
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/Company workspace/);
 });
 
 const platformActor=id=>({accountId:id,issuer:'test',user:{name:id,email:id+'@example.com',emailVerified:true}});
