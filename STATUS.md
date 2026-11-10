@@ -4,7 +4,7 @@ Updated: 10 November 2026 (Hong Kong).
 
 - Primary app: **http://localhost:5173**, launched with `npm run dev` or `Start.command`. The current task leaves the local server running for review.
 - English interface throughout company and shareholder pages, forms, errors and exports. Chinese language selection is deferred.
-- Simplified layout: removed promotional hero sections, slogans, repeated explanatory text and decorative onboarding panels. Larger readable type, compact navigation, campaigns, review queue and treasury summaries.
+- Simplified workspace layout: removed repeated explanatory text and decorative onboarding panels. Larger readable type, compact navigation, campaigns, review queue and treasury summaries. The public introduction has its own service overview, hero image and campaign discovery.
 - Data: existing `.local/workspace.sqlite` is retained. Known legacy sample labels are presented in English without resetting stored data. Offline browser data remains separate.
 - Local writes work from both `localhost` and `127.0.0.1`. The local adapter retains same-origin checks and rejects unapproved Host headers.
 - The launcher automatically selects a compatible nvm Node runtime when the default Node is too old.
@@ -51,6 +51,7 @@ Updated: 10 November 2026 (Hong Kong).
 - Added searchable Current campaigns with public detail dialogs. The anonymous read-only endpoint includes only active/listed companies and published/visible campaigns whose claim deadline has not passed. Public terms are allowlisted; private shareholders, wallets, funds, legal/contact details, files, team data and internal notes never enter the response. No identity is created. Responses are no-store and mutations return 405.
 - Selection persists through `?campaign=` and verified sign-in into the shareholder view, including first-time onboarding. Hidden or removed campaigns are rechecked against the authenticated response; URL parameters cannot grant access. The introduction and discovery load independently of the initial session check.
 - All 77 tests, build and asset checks pass. Isolated native-browser QA verified search, public terms, selected-campaign sign-in, first onboarding, returning to the same campaign and sign-out, using simulated local OTP delivery with no outgoing email. Desktop and 390px views have no horizontal overflow; the hero image loaded at its expected resolution and the flow produced no browser errors.
+- Production source `5ae86aa` is Ready (deployment `9MArNPyY1fYoXHct2C8gxqtmf5vq`). Anonymous API verification returned HTTP 200, no-store and only the allowlisted campaign/company fields. Native live verification passed for the existing listed campaign, search, public detail, selection retained into sign-in, hero loading and 390px layout; no Sandbox/Preview display text or browser errors remain on the public page. No live OTP was sent, account/role was changed, or existing company/campaign/funds were modified. The isolated QA server is stopped; the primary localhost server retains the original database.
 
 ## Company workspaces and permissions
 
