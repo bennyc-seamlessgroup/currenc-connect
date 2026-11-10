@@ -117,10 +117,17 @@ test('UI: expired account session closes the workspace rather than showing stale
 
 const platformActor=id=>({accountId:id,issuer:'test',user:{name:id,email:id+'@example.com',emailVerified:true}});
 function platformHarness(t,actor=platformActor('owner')){const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB);return {DB,platform,actor,...harness({platform,actor})};}
+async function staffCompany(DB,platform,actor,name='Company'){
+ await platform.read(actor);await DB.query("INSERT INTO cc_platform_admins (account_id,role,created_at) VALUES ($1,'admin',$2)",[actor.accountId,new Date().toISOString()]);
+ const selected=await platform.execute(actor,{type:'platform-create-company',name,ticker:'TST',token:'TEST'});
+ await DB.query("DELETE FROM cc_platform_admins WHERE account_id=$1 AND role='admin'",[actor.accountId]);return {view:'company',organizationId:selected.organizationId};
+}
+
 
 test('UI: first-time shareholders onboard without receiving company permissions or sample investors',async t=>{
  const h=platformHarness(t);await h.start();
- assert.match(h.nodes['#app'].innerHTML,/Choose how to get started/);
+ assert.match(h.nodes['#app'].innerHTML,/Continue as a shareholder/);
+ assert.doesNotMatch(h.nodes['#app'].innerHTML,/Register company|Register a company|Submit for review/);
  await h.click('onboard-shareholder');
  assert.match(h.nodes['#app'].innerHTML,/My rewards/);
  assert.doesNotMatch(h.nodes['#app'].innerHTML,/data-mode="company"/);
@@ -129,9 +136,7 @@ test('UI: first-time shareholders onboard without receiving company permissions 
 });
 
 test('UI: company owners create a workspace, manage invitations and safely render company names',async t=>{
- const h=platformHarness(t);await h.start();await h.click('new-organization');
- assert.match(h.nodes['#app'].innerHTML,/organization-form/);
- await h.submit('organization-form',{name:'<svg onload=alert(1)>',ticker:'TST',token:'TEST'});
+ const h=platformHarness(t);const selected=await staffCompany(h.DB,h.platform,h.actor,'<svg onload=alert(1)>');await h.start(selected);
  assert.match(h.nodes['#app'].innerHTML,/&lt;svg/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<svg onload/);
  await h.click('nav',{page:'team'});assert.match(h.nodes['#app'].innerHTML,/Invite member/);
  await h.click('invite-member');assert.match(h.nodes['#dialog'].innerHTML,/No email is sent automatically/);
@@ -154,7 +159,7 @@ test('UI: company owners create a workspace, manage invitations and safely rende
 
 test('UI: viewers have no campaign, review, funding or team controls; operators retain campaign controls',async t=>{
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),owner=platformActor('owner');
- await platform.read(owner);const selection=await platform.execute(owner,{type:'create-organization',name:'Company',ticker:'TST',token:'TEST'});
+ const selection=await staffCompany(DB,platform,owner);
  for(const role of ['viewer','operator']){
   const actor=platformActor(role);await platform.read(actor);await platform.execute(owner,{type:'invite-member',organizationId:selection.organizationId,email:actor.user.email,role});
   const invitation=(await platform.read(actor)).access.invitations[0];await platform.execute(actor,{type:'accept-invitation',invitationId:invitation.id});
@@ -166,7 +171,7 @@ test('UI: viewers have no campaign, review, funding or team controls; operators 
 });
 
 test('UI: revoked company membership clears private dialogs and falls back to the shareholder portal',async t=>{
- const h=platformHarness(t);await h.start();await h.submit('organization-form',{name:'Private company',ticker:'TST',token:'TEST'});
+ const h=platformHarness(t);await h.start(await staffCompany(h.DB,h.platform,h.actor,'Private company'));
  const org=(await h.platform.read(h.actor)).context.organizationId,member=platformActor('member');await h.platform.read(member);
  await h.platform.execute(h.actor,{type:'invite-member',organizationId:org,email:member.user.email,role:'admin'});
  const invitation=(await h.platform.read(member)).access.invitations[0];await h.platform.execute(member,{type:'accept-invitation',invitationId:invitation.id});
@@ -176,30 +181,29 @@ test('UI: revoked company membership clears private dialogs and falls back to th
  assert.doesNotMatch(ui.nodes['#app'].innerHTML,/Private company|New campaign/);assert.match(ui.nodes['#app'].innerHTML,/Shareholder portal/);
 });
 
-test('UI: company registration shows application fields and blocks publishing controls before approval',async t=>{
- const h=platformHarness(t);await h.start();await h.submit('organization-form',{name:'Applicant company',ticker:'APP',token:'TEST'});
- assert.match(h.nodes['#app'].innerHTML,/Company application|company-application-form/);
- assert.match(h.nodes['#app'].innerHTML,/Official website|Representative authority/);
- await h.submit('company-application-form',{legalName:'Test Applicant',contactName:'<svg onload=bad>',authorized:'on'});
+test('UI: staff add and edit company information without applications or evidence requirements',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('platform-root');const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}}),h=harness({platform,actor:root});
+ await h.start({view:'platform'});await h.click('platform-new-company');assert.match(h.nodes['#dialog'].innerHTML,/platform-create-company-form/);
+ await h.submit('platform-create-company-form',{name:'Managed company',ticker:'APP',token:'TEST'});
+ assert.match(h.nodes['#app'].innerHTML,/Company information/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Submit for review|Applications|Company application/);
+ await h.submit('platform-save-company-form',{name:'Managed company',ticker:'APP',legalName:'Test Company',contactName:'<svg onload=bad>'});
  assert.match(h.nodes['#app'].innerHTML,/&lt;svg/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<svg onload/);
- await h.click('nav',{page:'campaigns'});assert.match(h.nodes['#app'].innerHTML,/New campaign/);
- const org=(await h.platform.read(h.actor)).context.organizationId;
- await h.platform.execute(h.actor,{type:'create',organizationId:org,input:{company:org,name:'Draft',description:'Test',mode:'ratio',ratio:0.1,budget:1000,minimum:1,cap:1000,release:100,snapshotDate:new Date().toISOString().slice(0,10),deadline:new Date(Date.now()+86400000).toISOString().slice(0,10),distribution:'claim',chains:['ETH']}});
- await h.start();const id=(await h.platform.read(h.actor)).state.campaigns[0].id;await h.click('detail',{id});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Open registration/);
+ await h.click('mode',{mode:'company'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/company-application|Submit for review/);
+ const other=harness({platform,actor:platformActor('ordinary')});await other.start();await other.click('platform-new-company');assert.equal(other.nodes['#dialog'].open,false);
 });
 
 test('UI: platform console is restricted, renders admin pages, and safely displays portal settings',async t=>{
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('platform-root'),outsider=platformActor('outsider');
  const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}}),h=harness({platform,actor:root});
  await h.start({view:'platform'});assert.match(h.nodes['#app'].innerHTML,/Platform overview/);
- for(const page of ['platform-applications','platform-companies','platform-accounts','platform-audit','portal-settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Platform console'));}
+ for(const page of ['platform-companies','platform-accounts','platform-audit','portal-settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Platform console'));}
  await h.submit('portal-settings-form',{companyApplications:'on',shareholderRegistrations:'on',announcement:'<img src=x onerror=bad>'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/<img src=x/);assert.match(h.nodes['#app'].innerHTML,/&lt;img/);
  const other=harness({platform,actor:outsider});await other.start();assert.doesNotMatch(other.nodes['#app'].innerHTML,/data-mode="platform"/);await other.start({view:'platform'});assert.doesNotMatch(other.nodes['#app'].innerHTML,/Platform overview/);
 });
 
 test('UI: suspended accounts clear all cached company data and provide only sign out',async t=>{
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('platform-root'),member=platformActor('member');const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}});
- await platform.read(root);await platform.read(member);await platform.execute(member,{type:'create-organization',name:'Private owned company',ticker:'PRIV',token:'TEST'});
+ await platform.read(root);await staffCompany(DB,platform,member,'Private owned company');
  const h=harness({platform,actor:member});await h.start();await h.click('create');assert.equal(h.nodes['#dialog'].open,true);
  await platform.execute(root,{type:'platform-account-status',accountId:member.accountId,status:'suspended',revision:0,note:'Test suspension.'});await h.start();
  assert.match(h.nodes['#app'].innerHTML,/Account suspended/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Private owned company|New campaign/);assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);

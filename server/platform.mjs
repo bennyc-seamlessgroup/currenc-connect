@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {applyCommand,COMPANIES} from '../dist/server/domain.mjs';
 import {PlatformError,requireValue} from './errors.mjs';
-import {createGovernance} from './governance.mjs';
+import {createGovernance,validateCompanyInfo} from './governance.mjs';
 
 export {PlatformError} from './errors.mjs';
 const blankProfile=()=>({name:'',email:'',country:'Hong Kong',kyc:false});
@@ -91,18 +91,17 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
     }
     else if(mode==='company') {
       const id=selection.organizationId||memberships.find(o=>o.legacyId==='curr')?.id||memberships[0]?.id;
-      requireValue(id,'Create a company or accept an invitation first.',403);
+      requireValue(id,'Your team must provide company access first.',403);
       const row=await organization(id,identity.accountId);
       state={...parse(row),profile:JSON.parse(account.profile)};
       state.holders=state.holders.map(h=>projectHolder(h,identity.accountId));
       const approval=await governance.status(id),approved=approval.status==='approved',suspended=approval.status==='suspended';
       const grants=permissions(row.role);
-      context={mode,organizationId:id,role:row.role,approvalStatus:approval.status,listed:approval.visible===1,permissions:{...grants,campaigns:grants.campaigns&&!suspended,publish:grants.campaigns&&approved,treasury:grants.treasury&&approved,team:grants.team&&!suspended,application:grants.owner||row.role==='admin'}};
+      context={mode,organizationId:id,role:row.role,approvalStatus:approval.status,listed:approval.visible===1,permissions:{...grants,campaigns:grants.campaigns&&!suspended,publish:grants.campaigns&&approved,treasury:grants.treasury&&approved,team:grants.team&&!suspended}};
       const controls=await query('SELECT campaign_id,visible,paused FROM cc_campaign_controls WHERE organization_id=$1',[id]);
       state.campaigns=state.campaigns.map(c=>({...c,platform:{companyStatus:approval.status,listed:approval.visible===1,...(controls.find(p=>p.campaign_id===c.id)||{visible:1,paused:0})}}));
       revision=row.revision;
       if(context.permissions.team)teamData=await team(id);
-      if(context.permissions.application)companyApplication=await governance.application(identity,id);
     }else {
       const all=await query('SELECT o.id,o.company,o.data,s.status AS approval_status,s.visible FROM cc_organizations o JOIN cc_company_status s ON s.organization_id=o.id ORDER BY o.created_at,o.id');
       const controls=await query('SELECT organization_id,campaign_id,visible,paused FROM cc_campaign_controls');
@@ -117,22 +116,25 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       }
       state.activity=JSON.parse(account.activity);
     }
-    return {state,revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{companyApplications:portal.company_applications===1,shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
+    return {state,revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
   }
   async function createOrganization(identity,cmd) {
-    requireValue((await governance.settings()).company_applications===1,'New company applications are currently paused.',403);
+    await governance.requireAdmin(identity);
     const name=label(cmd.name,'company name');
     const ticker=label(cmd.ticker,'ticker',12).toUpperCase();const token=label(cmd.token,'test token symbol',12);
     requireValue(/^[A-Z0-9.-]{1,12}$/.test(ticker)&&/^[A-Za-z0-9.-]{1,12}$/.test(token),'Use letters, numbers, dots or hyphens for symbols.');
     const id=randomUUID();const company={id,name,ticker,token,color:'#39796f',initials:name.slice(0,1).toUpperCase(),description:'',sector:'Company workspace'};
     const state={...emptyState(blankProfile()),companies:[company],treasury:{[id]:{ETH:0,SOL:0,BNB:0}}};
-    await DB.transaction([
-      statement('INSERT INTO cc_organizations (id,company,data,owner_id,created_at) VALUES ($1,$2,$3,$4,$5)',[id,json(company),json(state),identity.accountId,at()]),
-      statement("INSERT INTO cc_memberships (organization_id,account_id,role,created_at) VALUES ($1,$2,'owner',$3)",[id,identity.accountId,at()]),
-      statement('INSERT INTO cc_company_status (organization_id,created_at) VALUES ($1,$2)',[id,at()]),
-      statement('UPDATE cc_accounts SET onboarded=1 WHERE id=$1',[identity.accountId]),teamAudit(id,identity.accountId,'Company created',name)
+    const info=validateCompanyInfo(cmd.info||{}),changed='EXISTS (SELECT 1 FROM changed)';
+    const rows=await DB.atomicChange(statement(`INSERT INTO cc_organizations (id,company,data,owner_id,created_at) SELECT $1,$2,$3,$4,$5 WHERE ${governance.adminGuard('$4')} RETURNING id`,[id,json(company),json(state),identity.accountId,at()]),[
+      statement(`INSERT INTO cc_memberships (organization_id,account_id,role,created_at) SELECT $1,$2,'owner',$3 WHERE ${changed} RETURNING account_id`,[id,identity.accountId,at()]),
+      statement(`INSERT INTO cc_company_status (organization_id,status,was_approved,visible,application,created_at) SELECT $1,'approved',1,0,$2,$3 WHERE ${changed} RETURNING organization_id`,[id,json(info),at()]),
+      statement(`UPDATE cc_accounts SET onboarded=1 WHERE id=$1 AND ${changed} RETURNING id`,[identity.accountId]),
+      governance.audit(identity.accountId,'Company created','company',id,{name,ticker}),
+      statement(`INSERT INTO cc_team_audit (id,organization_id,actor_id,action,detail,created_at) SELECT $1,$2,$3,$4,$5,$6 WHERE ${changed} RETURNING id`,[randomUUID(),id,identity.accountId,'Company created by platform',name,at()])
     ]);
-    return {view:'company',organizationId:id};
+    requireValue(rows.length,'Your platform access changed. Reload and try again.',403);
+    return {view:'platform',organizationId:id};
   }
   async function invite(identity,cmd) {
     const row=await organization(cmd.organizationId,identity.accountId);
@@ -189,10 +191,10 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
   async function execute(identity,cmd) {
     const account=await ensureAccount(identity);
     requireValue(cmd&&typeof cmd==='object'&&!Array.isArray(cmd),'Invalid command.',400);
+    if(cmd.type==='platform-create-company')return createOrganization(identity,cmd);
     if(typeof cmd.type==='string'&&cmd.type.startsWith('platform-'))return governance.platformExecute(identity,cmd);
-    if(['save-company-application','submit-company-application'].includes(cmd.type))return governance.companyCommand(identity,cmd);
+    if(['create-organization','save-company-application','submit-company-application'].includes(cmd.type))throw new PlatformError('Companies are registered and managed by the platform team.',403);
     if(cmd.type==='onboard') {await query('UPDATE cc_accounts SET onboarded=1 WHERE id=$1',[identity.accountId]);return {view:'shareholder'};}
-    if(cmd.type==='create-organization')return createOrganization(identity,cmd);
     if(cmd.type==='accept-invitation')return accept(identity,account,cmd);
     if(cmd.type==='invite-member'){await invite(identity,cmd);return {view:'company',organizationId:cmd.organizationId};}
     if(['revoke-invitation','change-member-role','remove-member'].includes(cmd.type)){await manageTeam(identity,cmd);return {view:'company',organizationId:cmd.organizationId};}
@@ -217,7 +219,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       const campaignRef=cmd.campaignId||(cmd.type==='review'?current.holders.find(h=>h.id===cmd.holderId)?.campaign:null)||'';
       const moderation=campaignRef?await one('SELECT * FROM cc_campaign_controls WHERE organization_id=$1 AND campaign_id=$2',[row.id,campaignRef]):null;
       requireValue(approval.status!=='suspended','Company operations are suspended.',403);
-      if(cmd.type!=='create')requireValue(approval.status==='approved','The company must be approved by the platform first.',403);
+      if(cmd.type!=='create')requireValue(approval.status==='approved','The company must be activated by the platform team first.',403);
       if(moderation?.paused===1)requireValue(cmd.type==='wallet','This campaign has been paused by the platform.',403);
       if(cmd.type==='verify'){
         requireValue(approval.visible===1&&moderation?.visible!==0,'This campaign is not accepting public registrations.',403);

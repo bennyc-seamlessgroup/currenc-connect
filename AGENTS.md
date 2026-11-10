@@ -4,14 +4,12 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
-- 新增平台管理與公司申請審批：`server/governance.mjs`、`src/governance-ui.js`、`drizzle/0002_governance.sql`。公司 Owner/Admin 與 Platform Owner/Admin 是不同權限，不可互相冒充。
-- 公司申請狀態為 draft/pending/needs_info/approved/rejected/suspended；未獲批只可準備活動草稿，不可公開、接受登記或操作發放。補件後重新提交會保存版本，審批須比對 revision，避免舊版本被批准。
-- 公司登記／代表授權文件以私密資料表保存（每檔 2 MB，PDF/PNG/JPEG，最多 20 個保留版本），透過 `api/company-document.js` 驗證身份後下載。只允許該公司 Owner/Admin 及 Platform Admin；不可將檔案內容放進公開目錄、工作空間 JSON、localStorage 或稽核 JSON。
-- 平台首位主管理員只可由伺服器 `PLATFORM_BOOTSTRAP_OWNER_EMAIL` 設定及已驗證 Neon issuer 初始化，之後固定綁定 account ID；不可使用「第一個用戶」、公司 Owner 或客戶端欄位取得平台權限。不要把真實管理員電郵寫進 Git。localhost 的 local-development 身份為明確的本機例外，不可公開部署。
-- 舊公司保留資料，但預設為未公開的 draft application。只有以 owner ID 和歷史 company ID 確認的匯入示範公司可由平台明確批准為 sandbox；不得將此批准誤稱為真實公司／代表已核實。
-- 平台可停用帳戶、暫停公司／活動、隱藏公開活動及控制新申請／股東登記。不得清除既有配額、發放、餘額或原 JSON archive。從未獲批的公司恢復後須重新申請，不能直接變成 approved。
-- 本輪目前 57 項測試通過；另外有獨立 localhost:5174 + `/private/tmp/currenc-governance-qa.sqlite` 作合成公司／文件流程驗收。不要將這個暫存測試資料庫當成使用者主資料庫。
-- 平台管理已部署並完成 Production 合成申請／兩類 PDF 上載／提交鎖定／審批及隱藏實測；指定並經使用者確認的帳戶已初始化為唯一 Platform Owner。私密下載內容核對一致，另一個普通帳戶無法讀取平台或公司文件。合成測試公司保留為 hidden，沒有活動／資金；舊三間示範公司仍是 hidden draft，須由平台明確審批。localhost:5174 驗收程式已停止，主 localhost:5173 留待檢視。
+- 最新產品決定：**公司只由平台團隊建立及輸入資料**。一般帳戶沒有公司登記、申請、提交、補件或審批流程；`create-organization`／`save-company-application`／`submit-company-application` 均回覆 403，不能只隱藏按鈕。
+- 平台入口：Platform console → Companies → Add company；`platform-create-company`、`platform-save-company` 僅允許 Platform Owner/Admin。新公司 active + hidden、空資金及空活動。法律／聯絡資料可由團隊逐步填寫，毋須證明文件或申請快照。公司名／ticker 可編輯，token 建立後固定；更新須保留所有業務資料並檢查公司及狀態 revision。
+- 狀態資料表保留舊值以免破壞歷史：approved 顯示 Active，draft/pending/needs_info/rejected 顯示 Inactive，suspended 顯示 Suspended。後台只有 activate/deactivate/suspend/resume/show/hide，沒有 approve/reject/request-info。舊三間示範公司保留 hidden/inactive，不會自動啟用。恢復公司一律 hidden。
+- 公司 Owner/Admin 與 Platform Owner/Admin 分開；公司成員不能更改平台保存的公司登記資訊。`companyApplication` 不再回傳予公司模式。舊文件／申請紀錄保留，內部文件只供平台人員讀寫，不再准許普通公司 Owner/Admin 存取；不要公開檔案或把內容放入工作空間 JSON／localStorage／稽核。
+- 平台首位主管理員已經由使用者確認並初始化。`PLATFORM_BOOTSTRAP_OWNER_EMAIL` 及驗證 Neon issuer 只初始化一次，固定綁定 account ID；不可從公司 Owner、第一位用戶或客戶端欄位取得平台權限。真實管理員電郵不寫入 Git。localhost 的明確 local-development 例外不可公開部署。
+- 平台保留帳戶／公司／活動控制、股東登記開關、公告及稽核紀錄。不得重設既有配額、發放、餘額、成員、原 JSON archive、舊文件或歷史申請。登入與權限真實，KYC／持股／錢包與發放仍為 Sandbox。
 
 - 公司與股東權限已改用 `server/platform.mjs`：Owner／Admin／Operator／Viewer，股東只見自己的身份、登記、錢包與獎勵。公司角色必須由建立公司或接受電郵綁定邀請取得；前端切換不能授予權限。
 - `drizzle/0001_platform.sql` 是新增的帳戶、公司、成員、邀請與團隊稽核資料表；Neon 與 localhost SQLite 使用相同平台規則。業務狀態仍以每公司 JSON + revision 保存，並非已完成所有正式產品的資料模型。

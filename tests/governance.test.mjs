@@ -16,13 +16,18 @@ function harness(t,{bootstrap=true}={}){
  const platform=createPlatform(DB,options),documents=createCompanyDocuments(DB,platform);
  return {DB,options,...platform,platform,documents};
 }
-async function createCompany(h,person=owner){await h.read(person);return (await h.execute(person,{type:'create-organization',name:'Test Company',ticker:'TEST',token:'TST'})).organizationId;}
-async function app(h,id){return h.governance.application(owner,id);}
-async function save(h,id,fields=application){const current=await app(h,id);await h.execute(owner,{type:'save-company-application',organizationId:id,revision:current.revision,application:fields});}
-async function evidence(h,id,purpose,bytes=pdf){const current=await app(h,id);return h.documents.upload(owner,{organizationId:id,purpose,revision:current.revision,filename:purpose+'.pdf',mime:'application/pdf',bytes});}
-async function submit(h,id){const current=await app(h,id);return h.execute(owner,{type:'submit-company-application',organizationId:id,revision:current.revision,application});}
-async function review(h,id,action='approve',extras={}){const current=await app(h,id);return h.execute(root,{type:'platform-review-company',organizationId:id,revision:current.revision,action,note:'Workflow test decision only.',...extras});}
-async function ready(h){await h.read(root);const id=await createCompany(h);await save(h,id);await evidence(h,id,'company');await evidence(h,id,'authority');await submit(h,id);await review(h,id);return id;}
+async function createCompany(h,person=owner){
+ await h.read(root);await h.read(person);
+ await h.DB.query("INSERT INTO cc_platform_admins (account_id,role,created_at) VALUES ($1,'admin',$2) ON CONFLICT (account_id) DO NOTHING",[person.accountId,new Date().toISOString()]);
+ const selected=await h.execute(person,{type:'platform-create-company',name:'Test Company',ticker:'TEST',token:'TST'});
+ if(person.accountId!==root.accountId)await h.DB.query("DELETE FROM cc_platform_admins WHERE account_id=$1 AND role='admin'",[person.accountId]);
+ return selected.organizationId;
+}
+async function app(h,id){return h.governance.application(root,id);}
+async function save(h,id,fields=application){const c=(await h.read(root,{view:'platform',organizationId:id})).platform.company;return h.execute(root,{type:'platform-save-company',organizationId:id,revision:c.revision,organizationRevision:c.organizationRevision,name:c.company.name,ticker:c.company.ticker,info:fields});}
+async function evidence(h,id,purpose,bytes=pdf){const current=await app(h,id);return h.documents.upload(root,{organizationId:id,purpose,revision:current.revision,filename:purpose+'.pdf',mime:'application/pdf',bytes});}
+async function review(h,id,action='activate',extras={}){const current=await app(h,id);return h.execute(root,{type:'platform-review-company',organizationId:id,revision:current.revision,action,note:'Workflow test decision only.',...extras});}
+async function ready(h){const id=await createCompany(h);await save(h,id);await review(h,id,'show');return id;}
 async function draftCampaign(h,id){const today=new Date().toISOString().slice(0,10),deadline=new Date(Date.now()+86400000*30).toISOString().slice(0,10);await h.execute(owner,{type:'create',organizationId:id,input:{company:id,name:'Test rewards',description:'Workflow sample',mode:'ratio',ratio:0.1,budget:10000,minimum:100,cap:10000,release:100,snapshotDate:today,deadline,distribution:'claim',chains:['ETH','SOL','BNB']}});return (await h.read(owner,{view:'company',organizationId:id})).state.campaigns.at(-1).id;}
 async function register(h,id,cid,person=investor){await h.execute(person,{type:'kyc',name:person.user.name,email:'demo@example.com',country:'Hong Kong',consent:true});await h.execute(person,{type:'verify',organizationId:id,campaignId:cid,shares:5000,source:'broker'});await h.execute(person,{type:'wallet',organizationId:id,campaignId:cid,chain:'ETH',wallet:'0x'+'1'.repeat(40)});}
 const rejects=(promise,status)=>assert.rejects(promise,e=>e instanceof PlatformError&&e.status===status);
@@ -39,30 +44,28 @@ test('platform owner bootstrap is deployment-controlled, verified, issuer-bound 
  const none=harness(t,{bootstrap:false});assert.equal((await none.read(root)).access.platformRole,null);
 });
 
-test('company registration saves drafts and private evidence, requests correction, then approves one immutable submission',async t=>{
- const h=harness(t);await h.read(root);const id=await createCompany(h),cid=await draftCampaign(h,id);
- assert.equal((await app(h,id)).status,'draft');assert.equal((await h.read(investor,{view:'shareholder'})).state.companies.length,0);
- await rejects(h.execute(owner,{type:'open',organizationId:id,campaignId:cid}),403);
- await save(h,id);await rejects(submit(h,id),422);await evidence(h,id,'company');await evidence(h,id,'authority');await submit(h,id);
- let current=await app(h,id);assert.equal(current.status,'pending');await rejects(save(h,id),409);await rejects(evidence(h,id,'authority'),409);
- await review(h,id,'request-info');assert.equal((await app(h,id)).status,'needs_info');
- await save(h,id,{...application,contactName:'Corrected representative'});await evidence(h,id,'authority',Buffer.from('%PDF-1.4\nUpdated test-only authority\n%%EOF'));await submit(h,id);
- const before=(await app(h,id)).revision;await review(h,id);
- current=await app(h,id);assert.equal(current.status,'approved');assert.equal(current.visible,1);assert.equal(current.revision,before+1);
- await h.execute(owner,{type:'open',organizationId:id,campaignId:cid});assert.equal((await h.read(investor,{view:'shareholder'})).state.campaigns.length,1);
- const platformView=await h.read(root,{view:'platform',organizationId:id});assert.equal(platformView.platform.company.submissions.length,2);assert.equal(platformView.platform.company.submissions[0].documents.length,2);
- assert.doesNotMatch(JSON.stringify(platformView),/JVBER|Test-only evidence|"content"/);
+test('only platform staff register and edit companies; user submissions are retired and files are optional',async t=>{
+ const h=harness(t);await h.read(root);await h.read(owner);
+ for(const type of ['create-organization','save-company-application','submit-company-application','platform-create-company','platform-save-company'])await rejects(h.execute(owner,{type,name:'Forbidden',ticker:'TEST',token:'TST'}),403);
+ const id=await createCompany(h);assert.equal((await app(h,id)).status,'approved');assert.equal((await app(h,id)).visible,0);
+ await rejects(h.governance.application(owner,id),403);assert.equal((await h.read(owner,{view:'company',organizationId:id})).companyApplication,null);
+ const cid=await draftCampaign(h,id);await review(h,id,'deactivate');await rejects(h.execute(owner,{type:'open',organizationId:id,campaignId:cid}),403);
+ await save(h,id);await review(h,id,'activate');await h.execute(owner,{type:'open',organizationId:id,campaignId:cid});
+ assert.equal((await h.read(investor,{view:'shareholder'})).state.companies.length,0);
+ await review(h,id,'show');assert.equal((await h.read(investor,{view:'shareholder'})).state.campaigns.length,1);
+ const before=await h.read(owner,{view:'company',organizationId:id});const c=(await h.read(root,{view:'platform',organizationId:id})).platform.company;
+ await h.execute(root,{type:'platform-save-company',organizationId:id,revision:c.revision,organizationRevision:c.organizationRevision,name:'Renamed Company',ticker:'NEW',info:{...application,contactName:'Updated contact'}});
+ const after=await h.read(owner,{view:'company',organizationId:id});assert.equal(after.state.companies[0].name,'Renamed Company');assert.deepEqual(after.state.campaigns,before.state.campaigns);assert.deepEqual(after.state.treasury,before.state.treasury);
+ assert.equal((await app(h,id)).documents.length,0);assert.equal((await h.read(root,{view:'platform',organizationId:id})).platform.company.submissions.length,0);
  await rejects(h.read(root,{view:'company',organizationId:id}),403);
 });
 
-test('stale or competing company decisions cannot approve a replaced application or create duplicate audit decisions',async t=>{
- const h=harness(t);await h.read(root);const id=await createCompany(h);await save(h,id);await evidence(h,id,'company');await evidence(h,id,'authority');await submit(h,id);
- const stale=(await app(h,id)).revision;await review(h,id,'request-info');await save(h,id);await submit(h,id);
- await rejects(h.execute(root,{type:'platform-review-company',organizationId:id,revision:stale,action:'approve',note:'Stale decision must fail.'}),409);
+test('stale company edits and competing activation changes fail without duplicate status records',async t=>{
+ const h=harness(t),id=await createCompany(h);await review(h,id,'deactivate');const c=(await h.read(root,{view:'platform',organizationId:id})).platform.company;
+ await save(h,id);await rejects(h.execute(root,{type:'platform-save-company',organizationId:id,revision:c.revision,organizationRevision:c.organizationRevision,name:'Stale name',ticker:'OLD',info:{}}),409);
  const revision=(await app(h,id)).revision;
- const results=await Promise.allSettled(['approve','reject'].map(action=>h.execute(root,{type:'platform-review-company',organizationId:id,revision,action,note:'Concurrent test decision.'})));
- assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
- assert.equal((await app(h,id)).reviews.filter(r=>r.note==='Concurrent test decision.').length,1);
+ const results=await Promise.allSettled(['activate','suspend'].map(action=>h.execute(root,{type:'platform-review-company',organizationId:id,revision,action,note:'Concurrent test decision.'})));
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal((await app(h,id)).reviews.filter(r=>r.note==='Concurrent test decision.').length,1);
 });
 
 test('company and campaign moderation hide new registrations, preserve allocations, and stop suspended payouts',async t=>{
@@ -78,17 +81,17 @@ test('company and campaign moderation hide new registrations, preserve allocatio
  const view=await h.read(owner,{view:'company',organizationId:id});assert.equal(view.state.transactions.length,1);assert.equal(view.state.treasury[id].ETH,500);
 });
 
-test('portal controls pause new submissions and enrollments while retaining existing personal records',async t=>{
+test('portal controls pause enrollments without blocking staff company creation while retaining existing personal records',async t=>{
  const h=harness(t),id=await ready(h),cid=await draftCampaign(h,id);await h.execute(owner,{type:'open',organizationId:id,campaignId:cid});await h.read(investor);const settings=await h.governance.settings();
  await h.execute(root,{type:'platform-settings',revision:settings.revision,companyApplications:false,shareholderRegistrations:false,announcement:'Portal test notice'});
- await rejects(createCompany(h,stranger),403);await h.execute(investor,{type:'kyc',name:'Test investor',email:'demo@example.com',country:'Hong Kong',consent:true});await rejects(h.execute(investor,{type:'verify',organizationId:id,campaignId:cid,shares:5000,source:'broker'}),403);
+ await h.execute(root,{type:'platform-create-company',name:'Staff company',ticker:'NEW',token:'TEST'});await rejects(h.execute(stranger,{type:'create-organization',name:'Forbidden',ticker:'NO',token:'NO'}),403);await h.execute(investor,{type:'kyc',name:'Test investor',email:'demo@example.com',country:'Hong Kong',consent:true});await rejects(h.execute(investor,{type:'verify',organizationId:id,campaignId:cid,shares:5000,source:'broker'}),403);
  const personal=await h.read(investor,{view:'shareholder'});assert.equal(personal.state.profile.name,'Test investor');assert.equal(personal.access.portal.announcement,'Portal test notice');
  await rejects(h.execute(owner,{type:'platform-settings',revision:1,companyApplications:true,shareholderRegistrations:true}),403);
 });
 
-test('restoring an unapproved company returns it to application review without granting publishing permission',async t=>{
- const h=harness(t);await h.read(root);const id=await createCompany(h);await review(h,id,'suspend');assert.equal((await app(h,id)).status,'suspended');
- await review(h,id,'resume');const restored=await app(h,id);assert.equal(restored.status,'needs_info');assert.equal(restored.visible,0);
+test('restoring an unapproved company returns it to inactive status without granting publishing permission',async t=>{
+ const h=harness(t);await h.read(root);const id=await createCompany(h);await review(h,id,'deactivate');await review(h,id,'suspend');assert.equal((await app(h,id)).status,'suspended');
+ await review(h,id,'resume');const restored=await app(h,id);assert.equal(restored.status,'draft');assert.equal(restored.visible,0);
  const cid=await draftCampaign(h,id);await rejects(h.execute(owner,{type:'open',organizationId:id,campaignId:cid}),403);
 });
 
@@ -109,16 +112,16 @@ test('private documents require application access; versions remain immutable an
  const h=harness(t);await h.read(root);const id=await createCompany(h),viewer=actor('viewer');await h.read(viewer);
  await h.execute(owner,{type:'invite-member',organizationId:id,email:viewer.user.email,role:'viewer'});const invitation=(await h.read(viewer)).access.invitations[0];await h.execute(viewer,{type:'accept-invitation',invitationId:invitation.id});
  const first=await evidence(h,id,'company');await evidence(h,id,'company',Buffer.from('%PDF-1.4\nSecond version\n%%EOF'));
- assert.deepEqual((await h.documents.download(owner,first.id)).bytes,pdf);assert.deepEqual((await h.documents.download(root,first.id)).bytes,pdf);
+ await rejects(h.documents.download(owner,first.id),403);assert.deepEqual((await h.documents.download(root,first.id)).bytes,pdf);
  await rejects(h.documents.download(viewer,first.id),403);await rejects(h.documents.download(stranger,first.id),403);
  const current=await app(h,id);assert.equal(current.documents.length,1);assert.notEqual(current.documents[0].id,first.id);
- await rejects(h.documents.upload(owner,{organizationId:id,purpose:'authority',revision:current.revision,filename:'fake.pdf',mime:'application/pdf',bytes:Buffer.from('<html>bad</html>')}),422);
- await rejects(h.documents.upload(owner,{organizationId:id,purpose:'authority',revision:current.revision,filename:'large.pdf',mime:'application/pdf',bytes:Buffer.alloc(MAX_COMPANY_DOCUMENT_BYTES+1)}),413);
- await rejects(h.documents.upload(owner,{organizationId:id,purpose:'authority',revision:current.revision-1,filename:'stale.pdf',mime:'application/pdf',bytes:pdf}),409);
+ await rejects(h.documents.upload(root,{organizationId:id,purpose:'authority',revision:current.revision,filename:'fake.pdf',mime:'application/pdf',bytes:Buffer.from('<html>bad</html>')}),422);
+ await rejects(h.documents.upload(root,{organizationId:id,purpose:'authority',revision:current.revision,filename:'large.pdf',mime:'application/pdf',bytes:Buffer.alloc(MAX_COMPANY_DOCUMENT_BYTES+1)}),413);
+ await rejects(h.documents.upload(root,{organizationId:id,purpose:'authority',revision:current.revision-1,filename:'stale.pdf',mime:'application/pdf',bytes:pdf}),409);
 });
 
 test('multipart document API checks origin, bounded bodies and authenticated downloads with no public URL or inline execution',async t=>{
- const h=harness(t);const id=await createCompany(h);const handler=createDocumentHandler({identity:async()=>owner,database:async()=>h.DB});
+ const h=harness(t);const id=await createCompany(h);const handler=createDocumentHandler({identity:async()=>root,database:async()=>h.DB});
  const origin='https://app.example.test';
  const request=async(headers={})=>{const form=new FormData();form.append('organizationId',id);form.append('purpose','authority');form.append('revision',String((await app(h,id)).revision));form.append('file',new File([pdf],'authority.pdf',{type:'application/pdf'}));return new Request(origin+'/api/company-document',{method:'POST',headers:{Origin:origin,...headers},body:form});};
  await rejects(handler(await request({Origin:'https://attacker.test'})),403);
@@ -132,9 +135,9 @@ test('hosted document API ignores forged identity headers and fails closed befor
  const response=await handler(new Request('https://app.example.test/api/company-document?id=private', {headers:{'oai-authenticated-user-id':accountWorkspaceId(issuer,root.user.id),'x-neon-auth-user-id':root.user.id}}));assert.equal(response.status,401);assert.equal(calls,0);
 });
 
-test('existing sample companies retain data but require explicit sandbox approval instead of automatic public access',async t=>{
+test('existing sample companies retain all data and require a staff activation before public access',async t=>{
  const h=harness(t);const legacy=seedState();legacy.treasury.curr.ETH=25001;await h.DB.prepare('INSERT OR IGNORE INTO demo_workspaces (id, data, revision) VALUES (?, ?, 0)').bind(owner.accountId,JSON.stringify(legacy)).run();
  const view=await h.read(owner);const id=view.access.organizations.find(o=>o.legacyId==='curr').id;assert.equal((await h.read(investor,{view:'shareholder'})).state.companies.length,0);await h.read(root);
- await review(h,id,'approve',{approvalMode:'sandbox'});assert.equal((await app(h,id)).approval_mode,'sandbox');assert.equal((await h.read(owner,{view:'company',organizationId:id})).state.treasury[id].ETH,25001);
+ await review(h,id,'activate');await review(h,id,'show');assert.equal((await app(h,id)).approval_mode,'managed');assert.equal((await h.read(owner,{view:'company',organizationId:id})).state.treasury[id].ETH,25001);
  const fresh=await createCompany(h);await rejects(review(h,fresh,'approve',{approvalMode:'sandbox'}),422);
 });

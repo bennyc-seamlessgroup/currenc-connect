@@ -7,8 +7,8 @@ export function createCompanyDocuments(DB,platform,{now=()=>new Date()}={}){
   async function upload(identity,{organizationId,purpose,revision,filename,mime,bytes}){
     await platform.ensureAccount(identity);await gov.companyAccess(identity,organizationId);
     const current=await gov.status(organizationId);
-    requireValue(['draft','needs_info','rejected'].includes(current.status),'Documents are locked while the company application is being reviewed or approved.',409);
-    requireValue(Number.isInteger(revision)&&revision===current.revision,'The application changed. Reload before uploading.',409);
+    requireValue(current.status!=='suspended','Company files cannot be changed while the company is suspended.',409);
+    requireValue(Number.isInteger(revision)&&revision===current.revision,'The company changed. Reload before uploading.',409);
     requireValue(['company','authority'].includes(purpose),'Select a document purpose.');
     requireValue(typeof filename==='string'&&filename.length>0&&filename.length<=120&&!/[\\/\x00-\x1f\x7f]/.test(filename),'Choose a valid filename.');
     requireValue(bytes instanceof Uint8Array&&bytes.length>0&&bytes.length<=MAX_COMPANY_DOCUMENT_BYTES,'Each document must be 2 MB or smaller.',413);
@@ -16,7 +16,7 @@ export function createCompanyDocuments(DB,platform,{now=()=>new Date()}={}){
     const valid=mime==='application/pdf'?buffer.subarray(0,5).toString()==='%PDF-':mime==='image/png'?buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):mime==='image/jpeg'?buffer[0]===255&&buffer[1]===216&&buffer[2]===255:false;
     requireValue(valid,'Upload a PDF, PNG or JPEG file with a matching file type.');
     const id=randomUUID(),created=now().toISOString(),hash=createHash('sha256').update(buffer).digest('hex');
-    const rows=await DB.atomicChange({sql:`UPDATE cc_company_status SET revision=revision+1 WHERE organization_id=$1 AND revision=$2 AND status IN ('draft','needs_info','rejected') AND ${gov.memberGuard('$1','$3')} AND (SELECT COUNT(*) FROM cc_company_documents WHERE organization_id=$1)<20 RETURNING organization_id`,values:[organizationId,revision,identity.accountId]},[
+    const rows=await DB.atomicChange({sql:`UPDATE cc_company_status SET revision=revision+1 WHERE organization_id=$1 AND revision=$2 AND status<>'suspended' AND ${gov.adminGuard('$3')} AND (SELECT COUNT(*) FROM cc_company_documents WHERE organization_id=$1)<20 RETURNING organization_id`,values:[organizationId,revision,identity.accountId]},[
       {sql:`UPDATE cc_company_documents SET archived=1 WHERE organization_id=$1 AND purpose=$2 AND archived=0 AND id<>$3 AND ${changed} RETURNING id`,values:[organizationId,purpose,id]},
       {sql:`INSERT INTO cc_company_documents (id,organization_id,purpose,filename,mime,size,sha256,content,application_revision,uploaded_by,created_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE ${changed} RETURNING id`,values:[id,organizationId,purpose,filename,mime,buffer.length,hash,buffer.toString('base64'),revision+1,identity.accountId,created]},
       gov.audit(identity.accountId,'Company evidence uploaded','company',organizationId,{document:id,purpose,filename,sha256:hash,size:buffer.length})

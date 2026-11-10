@@ -25,7 +25,9 @@ Stop with Ctrl+C. Source changes require restarting the server to rebuild the ap
 
 ## Company and shareholder access
 
-New hosted accounts choose **Continue as a shareholder** or **Register a company**. Creating a company grants ownership of that new private workspace only. Company names and tickers do not grant access to an existing company. A new company starts with no campaigns, shareholders or test funds, and must pass platform review before publishing or accepting registrations. Owners and operators can prepare campaign drafts while the company application is incomplete.
+New hosted accounts continue as shareholders or accept a team invitation. Company registration is handled exclusively by the platform team through **Platform console → Companies → Add company**. Company owners/admins cannot register more companies or submit an application. The retired create/save/submit application APIs reject all self-service calls.
+
+Staff-created companies start active and hidden, with no campaigns, shareholders or test funds. Platform staff enter and maintain company information, appoint administrators and control whether the company is listed. Company names and tickers never grant access to an existing company.
 
 | Role | Company access |
 | --- | --- |
@@ -41,17 +43,20 @@ Open **Company → Team → Invite member**, enter an email and role, then use *
 
 Only published campaign settings appear in the shareholder directory. Company treasury, review queues, team details and other investors' records are excluded from shareholder responses. All write permissions are enforced server-side; changing a browser view or supplying another account/holder ID does not grant permission.
 
-## Platform console and company registration
+## Platform console and company management
 
-Platform administrators are separate from company owners/admins. The **Platform console** provides the review queue, company listings, account access, portal settings and an audit log. Platform review access includes private company application evidence, not automatic membership or access to company shareholder ledgers.
+Platform administrators are separate from company owners/admins. The **Platform console** contains Companies, Accounts, Portal settings and Audit log. There is no company submission or review queue.
 
-Company owners/admins complete **Company application** with legal name, registration number, jurisdiction, HTTPS website, contact details, representative role and authorization confirmation. Upload both **Company registration** and **Representative authority** evidence, then submit for review. Drafts can be saved. Submitted/approved evidence is locked; requesting information or rejecting an application allows correction and resubmission. Each submission snapshots the application and evidence metadata. Reviews use revisions to prevent approving stale or concurrently changed information.
+1. Open **Companies → Add company** and enter its name, ticker and test token symbol.
+2. Enter or edit legal, registration, jurisdiction, website, address and contact information; press **Save company information**. Additional registration details are optional and can be completed by the team over time. Supplied website/email fields are validated.
+3. Use **List on portal** when ready. A company appears to shareholders only when it is active, listed and has a published, visible campaign.
+4. Appoint an existing registered account under **Company administrators**, or use the company Team invitation flow.
 
-Evidence accepts PDF, PNG and JPEG up to **2 MB per file**. It is stored privately in the existing database, separately from business JSON, with a content hash and immutable versions. Up to 20 versions per company are retained. Replacing a file archives its earlier version, which remains available to authorized reviewers through submission history. Downloads use authenticated `/api/company-document` requests, attachment headers and `no-store`; there are no public file URLs. Owners/admins of the relevant company and platform administrators can read evidence. Company operators/viewers and unrelated accounts cannot.
+Platform staff can deactivate/activate, suspend/restore, hide/list companies and moderate campaign visibility or payouts, with recorded reasons and revision checks. Activation does not require an applicant, uploaded evidence or a submission. Newly created companies and restored companies remain hidden until explicitly listed. Existing inactive companies retain that state until staff activate them. Existing allocations, balances, transactions, memberships and historical submission/file records are preserved. Editing a company name/ticker also updates its business metadata without replacing its ledger; the test token symbol is fixed after creation.
 
-Review actions include approve, request information, reject, suspend/restore and list/hide. Only approved, listed companies with published, visible campaigns appear in the directory. Hiding removes new public registrations but retains existing shareholders' records. Company suspension and platform campaign pauses prevent simulated payouts and operational writes without removing allocations or transactions. Restoring a company that was never approved returns it to application review, not public access. Portal settings can pause new company submissions, pause new shareholder campaign registrations, and display a plain-text notice.
+The previous application interface is retired. Historical private files remain available to platform staff under **Internal files**; ordinary company owners, admins, operators and viewers cannot read or upload these internal records. Files retain immutable versions, authenticated attachment downloads and `no-store`. No public file URLs or file bytes appear in business JSON. The bounded document API remains restricted to platform staff (PDF/PNG/JPEG, 2 MB per file, up to 20 retained versions), and no documents are required for company creation or activation.
 
-Accounts can be suspended/restored at the application level. Suspension blocks protected API and evidence access on the next request; it does not delete data or delete the Neon identity. Platform administrators are protected from account suspension until their platform role is removed. Only the platform owner can appoint/remove platform admins, and the platform owner cannot be demoted or suspended through the app. Platform admins can appoint registered company administrators or adjust non-owner company member roles, with audit records. Company ownership remains unchanged.
+Portal settings control new shareholder campaign registrations and a plain-text announcement. Account suspension, platform-role delegation, company administrator appointment and team invitations retain their previous server-side protections. Only the platform owner can appoint/remove platform admins; the platform owner cannot be demoted or suspended through the app. Platform review rights do not automatically confer company membership or access to company shareholder ledgers; a staff member who creates a company owns that new workspace.
 
 ### Initialize the platform owner
 
@@ -59,7 +64,7 @@ Set **`PLATFORM_BOOTSTRAP_OWNER_EMAIL`** in the Vercel project's **Production** 
 
 Localhost explicitly bootstraps its loopback-only developer identity for review. This is development configuration, never a production fallback.
 
-Existing sample workspaces remain intact but begin hidden with a draft application. A platform reviewer may explicitly use **Approve sample workspace** for deterministically identified legacy samples, with a reason. This allows sandbox publishing without claiming legal company or representative verification. New companies must follow the normal evidence/submission flow; they cannot request the sample exemption.
+Existing sample companies remain intact and hidden/inactive until staff choose **Activate company**, then **List on portal**. This enables sandbox operations and does not assert real company, KYC or legal verification.
 
 ## Existing demo flow
 

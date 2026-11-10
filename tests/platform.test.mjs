@@ -11,9 +11,9 @@ function harness(t) {
   return {DB,...platform,advance(days){date=new Date(date.getTime()+days*86400000);}};
 }
 async function company(h,owner,name='Test company') {
-  await h.read(owner);const selected=await h.execute(owner,{type:'create-organization',name,ticker:'TEST',token:'TST'});
-  // These existing tests focus on membership/domain permissions. Company review
-  // transitions are exercised separately through the real governance service.
+  await h.read(owner);await h.DB.query("INSERT INTO cc_platform_admins (account_id,role,created_at) VALUES ($1,'admin',$2)",[owner.accountId,new Date().toISOString()]);const selected=await h.execute(owner,{type:'platform-create-company',name,ticker:'TEST',token:'TST'});await h.DB.query('DELETE FROM cc_platform_admins WHERE account_id=$1',[owner.accountId]);
+  // Membership/domain tests use staff-created, listed fixtures. Staff registration
+  // and the disabled self-service routes are exercised by governance tests.
   await h.DB.query("UPDATE cc_company_status SET status='approved',visible=1,was_approved=1 WHERE organization_id=$1",[selected.organizationId]);
   return selected.organizationId;
 }

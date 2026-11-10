@@ -24,7 +24,7 @@ const cookieB='__Secure-neon-auth.session_token=device-b';
 function harness() {
   const DB=database();
   const sessions=new Map([[cookieA,userA],[cookieA2,userA],[cookieB,userB]]);
-  const options={database:async()=>DB,environment:()=>({DATABASE_URL:'test-only'}),authenticate:async request=>({user:sessions.get((request.headers.get('Cookie')||'').split(';')[0])||null,issuer,headers:new Headers()})};
+  const options={database:async()=>DB,environment:()=>({DATABASE_URL:'test-only',PLATFORM_BOOTSTRAP_OWNER_EMAIL:userA.email,NEON_AUTH_BASE_URL:issuer}),authenticate:async request=>({user:sessions.get((request.headers.get('Cookie')||'').split(';')[0])||null,issuer,headers:new Headers()})};
   return {handle:createVercelWorkspaceHandler(options),options,DB,sessions};
 }
 function request(cookie,command,headers={}) {
@@ -147,9 +147,9 @@ test('Vercel reports missing database configuration for a signed-in user',async(
 
 test('Vercel binds company authorization to the provider account, ignoring forged account and role fields',async()=>{
   const {handle}=harness();
-  const created=await handle(request(cookieA,{type:'create-organization',name:'Private company',ticker:'PRIV',token:'TEST'}));
+  const created=await handle(request(cookieA,{type:'platform-create-company',name:'Private company',ticker:'PRIV',token:'TEST'}));
   assert.equal(created.status,200);
-  const org=(await created.json()).context.organizationId;
+  const org=(await created.json()).platform.company.id;
   const forgedHeaders={Cookie:cookieB,'oai-authenticated-user-id':accountWorkspaceId(issuer,userA.id),'oai-authenticated-user-email':userA.email};
   const read=await handle(new Request(origin+'/api/workspace?view=company&organization='+org,{headers:forgedHeaders}));
   assert.equal(read.status,403);assert.equal((await read.json()).state,undefined);

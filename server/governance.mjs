@@ -2,27 +2,19 @@ import {createHash,randomUUID} from 'node:crypto';
 import {PlatformError,requireValue} from './errors.mjs';
 
 const stmt=(sql,values=[])=>({sql,values});
-const editable=['draft','needs_info','rejected'];
 const changed='EXISTS (SELECT 1 FROM changed)';
 const active=(parameter)=>`NOT EXISTS (SELECT 1 FROM cc_account_controls ac WHERE ac.account_id=${parameter} AND ac.status='suspended')`;
 const adminGuard=parameter=>`EXISTS (SELECT 1 FROM cc_platform_admins pa WHERE pa.account_id=${parameter}) AND ${active(parameter)}`;
 const memberGuard=(organization,account)=>`EXISTS (SELECT 1 FROM cc_memberships m WHERE m.organization_id=${organization} AND m.account_id=${account} AND m.role IN ('owner','admin')) AND ${active(account)}`;
 const legacyCompany=(id,owner)=>['curr','north','harbor'].find(key=>id==='org-'+createHash('sha256').update(owner+'\0'+key).digest('hex').slice(0,32));
-export const COMPANY_EDITABLE_STATUSES=editable;
 export const APPLICATION_FIELDS={legalName:120,registrationNumber:80,jurisdiction:80,website:300,contactName:80,contactEmail:254,representativeRole:80,address:400,listingMarket:40};
-export function validateApplication(input,complete=false){
+export function validateCompanyInfo(input){
   const output={};
   for(const [key,max]of Object.entries(APPLICATION_FIELDS)){
-    const value=input?.[key]??'';requireValue(typeof value==='string'&&value.length<=max,'Check the company application fields.');output[key]=value.trim();
+    const value=input?.[key]??'';requireValue(typeof value==='string'&&value.length<=max,'Check the company information fields.');output[key]=value.trim();
   }
-  output.authorized=input?.authorized===true;
-  if(complete){
-    for(const key of ['legalName','registrationNumber','jurisdiction','website','contactName','contactEmail','representativeRole'])requireValue(output[key],`Complete ${key.replace(/[A-Z]/g,c=>' '+c.toLowerCase())}.`);
-    requireValue(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(output.contactEmail),'Enter a valid contact email.');
-    let website;try{website=new URL(output.website);}catch{}
-    requireValue(website?.protocol==='https:'&&!website.username&&!website.password,'Enter an HTTPS company website.');
-    requireValue(output.authorized,'Confirm that you are authorized to represent the company.');
-  }
+  if(output.contactEmail)requireValue(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(output.contactEmail),'Enter a valid contact email.');
+  if(output.website){let website;try{website=new URL(output.website);}catch{}requireValue(website?.protocol==='https:'&&!website.username&&!website.password,'Enter an HTTPS company website.');}
   return output;
 }
 export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
@@ -49,30 +41,24 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     await query('INSERT INTO cc_company_status (organization_id,created_at) SELECT id,created_at FROM cc_organizations WHERE id=$1 ON CONFLICT (organization_id) DO NOTHING',[id]);
     return one('SELECT * FROM cc_company_status WHERE organization_id=$1',[id]);
   }
-  async function companyAccess(identity,id,allowPlatform=false){
-    await accountActive(identity.accountId);
-    if(allowPlatform&&await platformRole(identity.accountId))return;
-    requireValue(await one("SELECT role FROM cc_memberships WHERE organization_id=$1 AND account_id=$2 AND role IN ('owner','admin')",[id,identity.accountId]),'Only company owners and administrators can access the application.',403);
-  }
+  async function companyAccess(identity,id){await requireAdmin(identity);requireValue(await one('SELECT id FROM cc_organizations WHERE id=$1',[id]),'Company unavailable.',404);}
   async function documents(id,includeArchive=false){return query(`SELECT id,purpose,filename,mime,size,sha256,application_revision,archived,created_at FROM cc_company_documents WHERE organization_id=$1${includeArchive?'':' AND archived=0'} ORDER BY created_at,id`,[id]);}
-  async function application(identity,id,allowPlatform=false){
-    await companyAccess(identity,id,allowPlatform);const row=await status(id);requireValue(row,'Company unavailable.',404);
+  async function application(identity,id){
+    await companyAccess(identity,id);const row=await status(id);requireValue(row,'Company unavailable.',404);
     return {...row,application:JSON.parse(row.application),documents:await documents(id),reviews:await query('SELECT r.action,r.note,r.application_revision,r.created_at,a.email AS reviewer FROM cc_company_reviews r JOIN cc_accounts a ON a.id=r.reviewed_by WHERE r.organization_id=$1 ORDER BY r.created_at DESC',[id])};
   }
-  async function companyCommand(identity,cmd){
-    await companyAccess(identity,cmd.organizationId);const row=await status(cmd.organizationId);
-    requireValue(editable.includes(row.status),'This application is locked while being reviewed or approved.',409);
-    requireValue(Number.isInteger(cmd.revision)&&cmd.revision===row.revision,'The application changed. Reload and try again.',409);
-    const app=validateApplication(cmd.application,cmd.type==='submit-company-application');
-    const submit=cmd.type==='submit-company-application',effects=[];
-    if(submit)requireValue((await settings()).company_applications===1,'New company applications are currently paused.',403);
-    if(submit){
-      const docs=await documents(cmd.organizationId);requireValue(['company','authority'].every(p=>docs.some(d=>d.purpose===p)),'Upload company registration and representative authority evidence.');
-      effects.push(stmt(`INSERT INTO cc_company_submissions (id,organization_id,application_revision,application,documents,submitted_by,created_at) SELECT $1,$2,$3,$4,$5,$6,$7 WHERE ${changed} RETURNING id`,[randomUUID(),cmd.organizationId,row.revision+1,JSON.stringify(app),JSON.stringify(docs),identity.accountId,at()]));
-    }
-    effects.push(audit(identity.accountId,submit?'Company application submitted':'Company application saved','company',cmd.organizationId,{revision:row.revision+1}));effects.push(invalidate(cmd.organizationId));
-    const result=await DB.atomicChange(stmt(`UPDATE cc_company_status SET application=$1,status=$2,revision=revision+1,submitted_at=$3,visible=0 WHERE organization_id=$4 AND revision=$5 AND status IN ('draft','needs_info','rejected') AND ${memberGuard('$4','$6')}${submit?" AND EXISTS (SELECT 1 FROM cc_portal_settings WHERE id='portal' AND company_applications=1)":''} RETURNING organization_id`,[JSON.stringify(app),submit?'pending':'draft',submit?at():null,cmd.organizationId,row.revision,identity.accountId]),effects);checked(result);
-    return {view:'company',organizationId:cmd.organizationId};
+  async function saveCompany(identity,cmd){
+    const current=await status(cmd.organizationId),org=await one('SELECT * FROM cc_organizations WHERE id=$1',[cmd.organizationId]);requireValue(current&&org,'Company unavailable.',404);
+    requireValue(Number.isInteger(cmd.revision)&&cmd.revision===current.revision&&cmd.organizationRevision===org.revision,'Company details changed. Reload and try again.',409);
+    const info=validateCompanyInfo(cmd.info),meta=JSON.parse(org.company);
+    requireValue(typeof cmd.name==='string'&&cmd.name.trim()&&cmd.name.trim().length<=80,'Enter a valid company name.');
+    requireValue(typeof cmd.ticker==='string'&&/^[A-Za-z0-9.-]{1,12}$/.test(cmd.ticker.trim()),'Enter a valid ticker.');
+    const company={...meta,name:cmd.name.trim(),ticker:cmd.ticker.trim().toUpperCase(),initials:cmd.name.trim().slice(0,1).toUpperCase()};
+    const data=JSON.parse(org.data);data.companies=data.companies.map(c=>c.id===org.id?company:c);
+    checked(await DB.atomicChange(stmt(`UPDATE cc_organizations SET company=$1,data=$2,revision=revision+1 WHERE id=$3 AND revision=$4 AND EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$3 AND revision=$5) AND ${adminGuard('$6')} RETURNING id`,[JSON.stringify(company),JSON.stringify(data),org.id,org.revision,current.revision,identity.accountId]),[
+      stmt(`UPDATE cc_company_status SET application=$1,revision=revision+1 WHERE organization_id=$2 AND ${changed} RETURNING organization_id`,[JSON.stringify(info),org.id]),
+      audit(identity.accountId,'Company details updated','company',org.id,{name:company.name,ticker:company.ticker})
+    ]));return {view:'platform',organizationId:org.id};
   }
   async function platformRead(identity,selection={}){
     const role=await requireAdmin(identity),page=Math.max(1,Math.min(10000,Math.trunc(Number(selection.page)||1))),offset=(page-1)*50;
@@ -84,9 +70,9 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     const counts=await query('SELECT status,COUNT(*) AS count FROM cc_company_status GROUP BY status');
     let detail=null;
     if(selection.organizationId){
-      const row=await one('SELECT id,company,owner_id,data FROM cc_organizations WHERE id=$1',[selection.organizationId]);requireValue(row,'Company unavailable.',404);
+      const row=await one('SELECT id,company,owner_id,data,revision FROM cc_organizations WHERE id=$1',[selection.organizationId]);requireValue(row,'Company unavailable.',404);
       const controls=await query('SELECT * FROM cc_campaign_controls WHERE organization_id=$1',[row.id]);
-      detail={id:row.id,company:{...JSON.parse(row.company),legacyId:legacyCompany(row.id,row.owner_id)},ownerId:row.owner_id,...await application(identity,row.id,true),
+      detail={id:row.id,organizationRevision:row.revision,company:{...JSON.parse(row.company),legacyId:legacyCompany(row.id,row.owner_id)},ownerId:row.owner_id,...await application(identity,row.id,true),
         campaigns:JSON.parse(row.data).campaigns.map(c=>({id:c.id,legacyId:c.legacyId,name:c.name,status:c.status,...(controls.find(p=>p.campaign_id===c.id)||{visible:1,paused:0,revision:0})})),
         members:await query("SELECT m.account_id AS id,m.role,a.email,a.name,COALESCE(c.status,'active') AS account_status FROM cc_memberships m JOIN cc_accounts a ON a.id=m.account_id LEFT JOIN cc_account_controls c ON c.account_id=a.id WHERE m.organization_id=$1 ORDER BY m.created_at,m.account_id",[row.id]),
         submissions:(await query('SELECT * FROM cc_company_submissions WHERE organization_id=$1 ORDER BY created_at DESC',[row.id])).map(s=>({...s,application:JSON.parse(s.application),documents:JSON.parse(s.documents)}))};
@@ -95,19 +81,15 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
   }
   async function review(identity,cmd){
     const row=await status(cmd.organizationId);requireValue(row,'Company unavailable.',404);
-    requireValue(Number.isInteger(cmd.revision)&&cmd.revision===row.revision,'The application changed. Reload and review the latest version.',409);
-    const note=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(note.length>=3&&note.length<=1000,'Enter a review reason (3–1,000 characters).');
-    const companyRecord=await one('SELECT company,owner_id FROM cc_organizations WHERE id=$1',[cmd.organizationId]);
+    requireValue(Number.isInteger(cmd.revision)&&cmd.revision===row.revision,'The company changed. Reload and try again.',409);
+    const note=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(note.length>=3&&note.length<=1000,'Enter a reason (3–1,000 characters).');
     let next=row.status,visible=row.visible,wasApproved=row.was_approved,mode=row.approval_mode;
-    if(cmd.action==='approve'){
-      mode=cmd.approvalMode==='sandbox'?'sandbox':'standard';
-      if(mode==='sandbox'){requireValue(legacyCompany(row.organization_id,companyRecord.owner_id),'Only migrated sample companies can use sandbox approval.');requireValue(['draft','pending','needs_info','rejected'].includes(row.status),'This company is not awaiting approval.');}
-      else {requireValue(row.status==='pending','Review a submitted company application first.');validateApplication(JSON.parse(row.application),true);const docs=await documents(cmd.organizationId);requireValue(['company','authority'].every(p=>docs.some(d=>d.purpose===p)),'Company evidence is incomplete.');}
-      next='approved';visible=1;wasApproved=1;
-    }else if(['reject','request-info'].includes(cmd.action)){requireValue(cmd.action==='request-info'?['pending','approved','suspended'].includes(row.status):row.status==='pending','Only submitted or previously reviewed applications can be reviewed.');next=cmd.action==='reject'?'rejected':'needs_info';visible=0;}
+    if(cmd.action==='activate'){
+      requireValue(row.status!=='approved'&&row.status!=='suspended','Only inactive companies can be activated.');next='approved';visible=0;wasApproved=1;mode='managed';
+    }else if(cmd.action==='deactivate'){requireValue(row.status==='approved','Only active companies can be deactivated.');next='draft';visible=0;wasApproved=0;}
     else if(cmd.action==='suspend'){requireValue(row.status!=='suspended','Company is already suspended.');next='suspended';visible=0;}
-    else if(cmd.action==='resume'){requireValue(row.status==='suspended','Only suspended companies can resume.');next=row.was_approved===1?'approved':'needs_info';visible=row.was_approved===1?1:0;}
-    else if(['hide','show'].includes(cmd.action)){requireValue(row.status==='approved','Only approved companies can be listed.');visible=cmd.action==='show'?1:0;}
+    else if(cmd.action==='resume'){requireValue(row.status==='suspended','Only suspended companies can resume.');next=row.was_approved===1?'approved':'draft';visible=0;}
+    else if(['hide','show'].includes(cmd.action)){requireValue(row.status==='approved','Only active companies can be listed.');visible=cmd.action==='show'?1:0;}
     else throw new PlatformError('Unknown review action.');
     checked(await DB.atomicChange(stmt(`UPDATE cc_company_status SET status=$1,visible=$2,was_approved=$3,approval_mode=$4,review_note=$5,reviewed_by=$6,reviewed_at=$7,revision=revision+1 WHERE organization_id=$8 AND revision=$9 AND ${adminGuard('$6')} RETURNING organization_id`,[next,visible,wasApproved,mode,note,identity.accountId,at(),row.organization_id,row.revision]),[
       stmt(`INSERT INTO cc_company_reviews (id,organization_id,application_revision,action,note,reviewed_by,created_at) SELECT $1,$2,$3,$4,$5,$6,$7 WHERE ${changed} RETURNING id`,[randomUUID(),row.organization_id,row.revision,cmd.action,note,identity.accountId,at()]),
@@ -116,10 +98,11 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
   }
   async function platformExecute(identity,cmd){
     const role=await requireAdmin(identity);
+    if(cmd.type==='platform-save-company')return saveCompany(identity,cmd);
     if(cmd.type==='platform-review-company')return review(identity,cmd);
     if(cmd.type==='platform-settings'){
-      requireValue(typeof cmd.companyApplications==='boolean'&&typeof cmd.shareholderRegistrations==='boolean','Invalid portal settings.');const announcement=typeof cmd.announcement==='string'?cmd.announcement.trim():'';requireValue(announcement.length<=300,'Portal notice must be 300 characters or fewer.');
-      checked(await DB.atomicChange(stmt(`UPDATE cc_portal_settings SET company_applications=$1,shareholder_registrations=$2,announcement=$3,revision=revision+1 WHERE id='portal' AND revision=$4 AND ${adminGuard('$5')} RETURNING id`,[cmd.companyApplications?1:0,cmd.shareholderRegistrations?1:0,announcement,cmd.revision,identity.accountId]),[audit(identity.accountId,'Portal settings updated','portal','portal',{companyApplications:cmd.companyApplications,shareholderRegistrations:cmd.shareholderRegistrations,announcement})]));
+      requireValue(typeof cmd.shareholderRegistrations==='boolean','Invalid portal settings.');const announcement=typeof cmd.announcement==='string'?cmd.announcement.trim():'';requireValue(announcement.length<=300,'Portal notice must be 300 characters or fewer.');
+      checked(await DB.atomicChange(stmt(`UPDATE cc_portal_settings SET company_applications=0,shareholder_registrations=$1,announcement=$2,revision=revision+1 WHERE id='portal' AND revision=$3 AND ${adminGuard('$4')} RETURNING id`,[cmd.shareholderRegistrations?1:0,announcement,cmd.revision,identity.accountId]),[audit(identity.accountId,'Portal settings updated','portal','portal',{shareholderRegistrations:cmd.shareholderRegistrations,announcement})]));
     }else if(cmd.type==='platform-account-status'){
       requireValue(['active','suspended'].includes(cmd.status),'Invalid account status.');requireValue(cmd.accountId!==identity.accountId,'You cannot suspend your own account.',403);requireValue(!await platformRole(cmd.accountId),'Remove platform administrator access before suspending this account.',403);
       requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a reason (3–1,000 characters).');
@@ -149,5 +132,5 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     }else throw new PlatformError('Unknown platform action.',400);
     return {view:'platform'};
   }
-  return {accountActive,platformRole,checkAccount,settings,status,application,documents,companyAccess,companyCommand,platformRead,platformExecute,audit,invalidate,memberGuard,adminGuard};
+  return {accountActive,platformRole,checkAccount,settings,status,application,documents,companyAccess,requireAdmin,platformRead,platformExecute,audit,invalidate,memberGuard,adminGuard};
 }
