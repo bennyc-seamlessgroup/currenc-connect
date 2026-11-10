@@ -5,12 +5,13 @@ A local shareholder rewards workspace for companies and investors. English is th
 ## Run locally
 
 ```sh
+npm ci
 npm run dev
 ```
 
 Open **http://localhost:5173**. `http://127.0.0.1:5173` also works. On Mac, double-click `Start.command` or run `zsh Start.command`.
 
-Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. No external packages or `npm install` are needed.
+Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon driver used by the Vercel API. The localhost server continues to use built-in Node modules.
 
 The local HTTP server stores workspace data in `.local/workspace.sqlite`. Data survives browser reloads and server restarts. Company and shareholder views share one demo workspace. The server listens on loopback only.
 
@@ -55,7 +56,10 @@ The optional offline export is `outputs/Currenc_Connect_Offline.html`. Normal de
 | `scripts/local-server.mjs` | Node HTTP and SQLite adapter |
 | `scripts/dev.mjs` | Build and launch localhost |
 | `scripts/run.mjs` | Select a compatible installed Node runtime |
-| `scripts/build.mjs` | Build assets and Worker; optional offline export |
+| `scripts/build.mjs` | Build Vercel browser assets and Worker; optional offline export |
+| `api/workspace.js` | Native Vercel API entry |
+| `server/` | Cloud database and sandbox session adapters |
+| `vercel.json` | Vercel output and response headers |
 | `drizzle/0000_workspace.sql` | Initial database schema |
 | `tests/` | Domain, API, UI and localhost regression tests |
 
@@ -65,7 +69,13 @@ Known sample Chinese labels from earlier local data are displayed in English wit
 
 Repository: [bennyc-seamlessgroup/currenc-connect](https://github.com/bennyc-seamlessgroup/currenc-connect).
 
-This phase runs locally. No Vercel deployment is configured. Before connecting Vercel, implement a Vercel-compatible API adapter, a durable hosted database and trusted authentication. The current local SQLite file and loopback demo identity must not be used as a public production backend. The shared domain rules and UI can be retained.
+Vercel deployment is configured in `vercel.json`: the build command is `npm run build`, the framework preset is Other, and the output directory is `dist/client`. Node is pinned to 22.x. The build retains the separate Worker output for localhost and Sites.
+
+The native `/api/workspace` function uses Neon Postgres through `@neondatabase/serverless`. Connect a Neon database to this Vercel project, enable the connection for Production and Preview, and redeploy. The integration must supply `DATABASE_URL` or `POSTGRES_URL`; never commit either value. The adapter creates its dedicated `currenc_connect_workspaces` table on first use and preserves the revision lock used for claims.
+
+The hosted sandbox identifies each browser using a random, secure, HttpOnly session cookie. Both demo roles share that browser workspace; different sessions are isolated. This is **not account login or production enterprise authorization**. The cookie lasts 30 days; clearing it starts a new workspace. Local data is not automatically uploaded. Missing database configuration produces a clear 503 response rather than storing data in temporary server memory or silently switching to browser storage.
+
+Production account authentication, company permissions and recovery across devices remain future work. Vercel Deployment Protection settings are preserved.
 
 The original Sites Worker target is retained at `dist/server/index.js`, with its existing project identity in `.openai/hosting.json`. It requires a `DB` D1 binding and a trusted gateway supplying the authenticated user identity. This is separate from the planned Vercel deployment.
 

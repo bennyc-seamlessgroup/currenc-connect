@@ -4,10 +4,10 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
-- 本輪以 **localhost** 為主要版本，`npm run dev` → `http://localhost:5173`；不要自動部署到 Sites 或 Vercel。
+- 保留 **localhost**：`npm run dev` → `http://localhost:5173`。使用者後續已明確要求修復 Vercel 部署，可將修正推送 GitHub 觸發 Vercel 部署；不要另建或部署 Sites。
 - 網站介面使用英文；中文將來才加入語言選項。對話語言仍沿用以下溝通規則。
 - 維持簡潔介面，移除宣傳大圖、口號及重複細字說明；操作相關說明放在對話框及 Quick guide。
-- GitHub repo：`https://github.com/bennyc-seamlessgroup/currenc-connect.git`。Vercel 接駁為後續工作，需要適配 API、持久化資料庫及正式登入。
+- GitHub repo：`https://github.com/bennyc-seamlessgroup/currenc-connect.git`。Vercel 現有 `vercel.json`、`api/workspace.js` 及 Neon 資料庫適配；須在 Vercel 連接資料庫並提供 `DATABASE_URL` 或 `POSTGRES_URL`。目前以安全隨機 cookie 隔離瀏覽器示範空間，並非正式登入。
 - `scripts/run.mjs` 會選用合適的已安裝 Node；`scripts/local-server.mjs` 提供 SQLite 本機適配。
 - 預設 build 不再生成離線 HTML；有需要才執行 `npm run build:offline`。
 - 勿重設 `.local/workspace.sqlite`；舊版已知示範文案只在顯示層轉為英文。

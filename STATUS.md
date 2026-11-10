@@ -10,12 +10,14 @@ Updated: 10 November 2026 (Hong Kong).
 - The launcher automatically selects a compatible nvm Node runtime when the default Node is too old.
 - Default builds no longer generate the offline HTML. `npm run build:offline` remains available as an optional export.
 - GitHub origin is configured: https://github.com/bennyc-seamlessgroup/currenc-connect.git. This repository is the target for the versioned source baseline. Local SQLite data, generated output and environment files are excluded from Git.
-- Vercel is planned for later. No Vercel deployment or public authentication has been configured. A hosted database and API adapter are still required.
+- Vercel deployment support is implemented: `dist/client` browser assets, native `/api/workspace`, Node 22.x, and a Neon cloud database adapter. The original failed deployment reported `STATIC_BUILD_NO_OUT_DIR` because Vercel expected `public`. A Neon database connection is required for the hosted API. Browser sandbox sessions are isolated; real account login is still unimplemented.
 - Original Sites project identity is retained. Sites Git read access was verified in the preceding access check; the Site remains unpublished.
 - Sandbox only: real identity checks, broker APIs, wallet signatures and on-chain transactions remain unimplemented.
 
 ## Verification
 
-- 16 automated tests pass, including the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display and mobile menu behavior.
+- 22 automated tests pass, including the complete demo flow, cross-chain allocation, concurrent claim protection, legacy English display and mobile menu behavior.
 - Local regression tests use a separate temporary database and confirm writes on both loopback hostnames, persistence across restarts, and rejection of cross-origin requests and invalid hosts.
 - Build and asset validation pass. Company and shareholder pages, English forms, and phone navigation were checked in the browser at desktop and 390px phone widths. No page-level horizontal overflow was observed; wide tables scroll within their containers.
+
+- Vercel-specific checks cover browser-only output, the API export, secure session isolation, ignored caller-supplied identities, persistent adapter state, concurrent claims, origin checks, and explicit missing-database errors. Live cloud verification depends on database provisioning and redeployment.
