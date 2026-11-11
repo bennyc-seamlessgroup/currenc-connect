@@ -277,6 +277,7 @@ document.addEventListener('submit',async e=>{
  if(f.id==='platform-account-invite-form'){await command({type:'platform-invite-account',email:data.email},'Account invitation created. Copy the link to share it.');return;}
  if(await holdingSubmit(f,data))return;
  if(await campaignSubmit(f,data))return;
+ if(await portalSubmit(f,data))return;
  if(await governanceSubmit(f,data,e))return;
  if(f.id==='invite-form'){await command({type:'invite-member',...data},'Invitation created. Copy the link to share it.');return;}
  if(f.id.startsWith('member-role-')){await command({type:'change-member-role',memberId:id,role:data.role},'Member role updated');return;}

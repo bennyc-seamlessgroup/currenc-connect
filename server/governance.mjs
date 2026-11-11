@@ -75,6 +75,10 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     const companies=await query("SELECT o.id,o.company,o.owner_id,a.email AS owner_email,s.status,s.revision,s.visible,s.approval_mode,s.submitted_at,s.review_note FROM cc_organizations o JOIN cc_accounts a ON a.id=o.owner_id JOIN cc_company_status s ON s.organization_id=o.id WHERE LOWER(o.company) LIKE $1 ESCAPE '!' OR LOWER(a.email) LIKE $1 ESCAPE '!' ORDER BY CASE WHEN s.status='pending' THEN 0 ELSE 1 END,s.submitted_at DESC,o.created_at DESC,o.id LIMIT 51 OFFSET $2",[pattern,offset]);
     const accountFilter=selection.accountFilter==='removed'?'removed':'current';
     const accounts=await query("SELECT a.id,a.email,a.name,a.created_at,CASE WHEN c.archived=1 THEN 'removed' ELSE COALESCE(c.status,'active') END AS status,COALESCE(c.revision,0) AS control_revision,p.role AS platform_role,(SELECT COUNT(*) FROM cc_memberships m WHERE m.account_id=a.id) AS companies FROM cc_accounts a LEFT JOIN cc_account_controls c ON c.account_id=a.id LEFT JOIN cc_platform_admins p ON p.account_id=a.id WHERE (LOWER(a.email) LIKE $1 ESCAPE '!' OR LOWER(a.name) LIKE $1 ESCAPE '!') AND COALESCE(c.archived,0)=$3 ORDER BY a.created_at DESC,a.id LIMIT 51 OFFSET $2",[pattern,offset,accountFilter==='removed'?1:0]);
+    // Only the authorized, paginated account list receives company role metadata.
+    const accountPage=accounts.slice(0,50),accountIds=accountPage.map(a=>a.id);
+    const memberships=accountIds.length?await query(`SELECT m.account_id,m.organization_id,m.role,o.company FROM cc_memberships m JOIN cc_organizations o ON o.id=m.organization_id WHERE m.account_id IN (${accountIds.map((_,i)=>'$'+(i+1)).join(',')}) ORDER BY m.created_at,m.organization_id`,accountIds):[];
+    const accountRows=accountPage.map(a=>({...a,companyRoles:memberships.filter(m=>m.account_id===a.id).map(m=>{const company=JSON.parse(m.company);return {organizationId:m.organization_id,name:company.name,role:m.role};})}));
     const events=await query('SELECT t.*,a.email AS actor FROM cc_platform_audit t JOIN cc_accounts a ON a.id=t.actor_id ORDER BY t.created_at DESC,t.id LIMIT 51 OFFSET $1',[offset]);
     const counts=await query('SELECT status,COUNT(*) AS count FROM cc_company_status GROUP BY status');
     let detail=null;
@@ -88,7 +92,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
         submissions:(await query('SELECT * FROM cc_company_submissions WHERE organization_id=$1 ORDER BY created_at DESC',[row.id])).map(s=>({...s,application:JSON.parse(s.application),documents:JSON.parse(s.documents)}))};
     }
     const accountInvitations=await query("SELECT id,email,created_at,expires_at FROM cc_account_invitations WHERE status='pending' AND expires_at>$1 ORDER BY created_at DESC LIMIT 50",[at()]);
-    return {role,accountFilter,accountInvitations,companies:companies.slice(0,50).map(c=>({...c,company:JSON.parse(c.company)})),accounts:accounts.slice(0,50),audit:events.slice(0,50),settings:await settings(),counts:Object.fromEntries(counts.map(c=>[c.status,Number(c.count)])),company:detail,pagination:{page,companyMore:companies.length>50,accountMore:accounts.length>50,auditMore:events.length>50},search};
+    return {role,accountFilter,accountInvitations,companies:companies.slice(0,50).map(c=>({...c,company:JSON.parse(c.company)})),accounts:accountRows,audit:events.slice(0,50),settings:await settings(),counts:Object.fromEntries(counts.map(c=>[c.status,Number(c.count)])),company:detail,pagination:{page,companyMore:companies.length>50,accountMore:accounts.length>50,auditMore:events.length>50},search};
   }
   async function review(identity,cmd){
     const row=await status(cmd.organizationId);requireValue(row,'Company unavailable.',404);

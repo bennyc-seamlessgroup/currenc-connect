@@ -217,3 +217,9 @@ test('account lifecycle migration upgrades an existing database without changing
  old.prepare('INSERT INTO cc_accounts (id,email,name,profile,activity,onboarded,created_at) VALUES (?,?,?,?,?,?,?)').run('preserved','preserved@example.com','Preserved','{}','[]',1,'2026-01-01');old.prepare('INSERT INTO cc_account_controls (account_id,status,reason,revision,updated_at) VALUES (?,?,?,?,?)').run('preserved','suspended','Existing reason',7,'2026-01-01');old.close();
  for(let i=0;i<2;i++){const DB=createSqliteDatabase(path);const row=DB.db.prepare('SELECT * FROM cc_account_controls WHERE account_id=?').get('preserved');assert.equal(row.archived,0);assert.equal(row.status,'suspended');assert.equal(row.revision,7);assert.equal(row.reason,'Existing reason');DB.close();}
 });
+
+test('account role summaries are staff-only metadata scoped to the displayed accounts',async t=>{
+ const h=harness(t),id=await ready(h);await h.read(investor);await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:investor.user.email,role:'admin'});
+ const view=await h.read(root,{view:'platform',search:investor.user.email}),rows=view.platform.accounts;assert.equal(rows.length,1);assert.deepEqual(rows[0].companyRoles,[{organizationId:id,name:'Test Company',role:'admin'}]);assert.deepEqual(Object.keys(rows[0].companyRoles[0]).sort(),['name','organizationId','role']);
+ await rejects(h.read(investor,{view:'platform'}),403);const personal=await h.read(investor,{view:'shareholder'});assert.equal(personal.platform,null);assert.ok(!JSON.stringify(personal).includes('companyRoles'));
+});

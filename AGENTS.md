@@ -4,6 +4,7 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11 使用者要求不要把全部操作按鈕攤開。Accounts 每列只保留 Manage access，對話框列出股東、平台及所有公司角色；公司角色可在此編輯／移除。Suspend／Disable 收在 Account controls，Active 預設收起，停用／暫停帳戶預設展開以便還原。手機列表採簡潔雙欄，不需橫捲找按鈕。後端僅向授權平台人員回傳當頁帳戶的公司 ID／名稱／角色；沿用現有角色命令、stale-role 及稽核保護。89 項測試及桌面／390px 驗證通過，沒有更改任何正式帳戶權限。不要再把帳戶操作攤開在主列表。
 - 2026-11-11：已釐清帳戶／角色操作：Revoke platform role 只撤銷平台角色；Remove company access 只撤銷該公司成員權；Suspend／Disable all portal access 會封鎖股東及公司入口。Removed 在介面顯示為 Disabled，資料值 archived／removed 及命令保持相容。Restore／Resume portal access 會恢復保留的公司角色，確認視窗必須提醒僅恢復股東入口時先移除不應恢復的公司角色。同一帳戶可兼任股東、多公司成員及平台管理員。本輪只修改名稱、說明及確認排版，未更改任何正式帳戶／角色；不要把文案更新誤當已還原先前停用的第二帳戶。
 - 持股文件／Logo 版本 `ac5acfd` 已在 Vercel Ready（`2etzC4CdKZKzUtqNbT8HUJd54fMi`），87 項測試、建置及檢查通過。獨立 SQLite 合成身份／兩份測試 PDF 已完成上載、補件、批准、錢包銜接及鎖定 120 TEST 配額，沒有資金或轉帳；正式站只做匿名唯讀／登入入口及 390px 檢查，沒有寄 OTP 或改動正式資料。QA 服務已停止，主 localhost:5173 保留運行。
 - 2026-11-11：新增持股文件上載及人工審核，`server/holding-evidence.mjs`／`src/holding-ui.js`／`/api/holding-evidence`／`drizzle/0004_holding_evidence.sql`。PDF/PNG/JPEG 每份最多 2 MB、每項登記最多 10 個不可覆寫版本。只供提交股東及該公司 Owner/Admin/Operator 存取，Viewer／其他公司／只有平台權限者不可讀取；禁止自行審核。公司內部登記文件維持原本 staff-only，不可混用權限。
