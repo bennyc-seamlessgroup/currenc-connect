@@ -4,6 +4,7 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11 最新實網驗證完成：使用者本人在 MetaMask 簽署 Sepolia 部署及領取，100 QATEST 已到已驗證錢包。RPC 核對部署 bytecode、cap／totalSupply／balance、RewardClaimed 接收地址與數量及 finalized block 通過；兩筆 intent 都已保存 Confirmed。股東頁重載後 Confirmed claims=100，公司 Distributions 僅一筆 Sepolia-confirmed 100 QATEST、交易區塊一致。私密 Portal Review QA → Sepolia wallet pilot 保留不封存，沒有改動其他帳戶／角色／活動／模擬餘額。真實錢包地址／交易 hash 只留在受保護資料及忽略的 outputs 截圖，不寫入 Git。不要重做領取或把此實測誤稱主網／真實持股分配已完成。
 - 2026-11-11 最新：新增獨立私密 Sepolia pilot，不改動普通模擬活動或餘額。Company → Campaigns → New testnet pilot 只供 Owner/Admin，為本人已驗證 ETH 錢包建立一份合成配額（1–1,000,000 整數、100% 解鎖、30 天領取），無須／不得假裝已完成真實 KYC 或持股檢查。一般 create/edit 不能轉為 Sepolia；匿名活動、他人股東目錄及平台 show 都不可公開 pilot。
 - `contracts/CurrencTestAirdrop.sol`／`scripts/compile-contracts.mjs`：固定 Solidity 0.8.38、OpenZeppelin 5.6.1，只有 chainId 11155111 可部署。六位小數新測試 ERC-20，Merkle 葉雙 hash 綁 index／錢包／配額，claim 只可領一次；不存姓名、電郵或真實持股。平台無簽署私鑰，部署及領取必須由使用者在錢包確認。只發 value=0 的 Sepolia 交易，gas 用測試 ETH。不要擅自按真實錢包的交易確認。
 - `/api/testnet`、`server/testnet.mjs`、`src/testnet-ui.js`、增量 migration `0006_testnet.sql` 保存私密 prepared intents／交易回執。核對 sender、chain、value、calldata、contract、hash 唯一性、canonical receipt、RewardClaimed 及 finalized block，完成後才更新 claimed／confirmed transaction，不扣模擬 treasury。部署準備及最終入帳以公司 revision 為主要原子變更，避免並發領取／編輯／封存覆蓋資料。交易 hash 遺失用 Add transaction hash，不自動重送。未準備部署或已全部領取的 pilot 可封存保留紀錄。
