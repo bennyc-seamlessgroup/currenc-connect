@@ -7,11 +7,13 @@ import vm from 'node:vm';
 import {seedState,applyCommand} from '../lib/domain.ts';
 import {createPlatform} from '../server/platform.mjs';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
+import {createWallets} from '../server/wallets.mjs';
+import {testSigner} from './helpers/wallets.mjs';
 import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
-const app='const brandSymbol='+JSON.stringify(readFileSync('src/assets/brand/symbol.svg','utf8'))+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8')+'\n'+readFileSync('src/holding-ui.js','utf8');
-function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null}={}){
+const app='const brandSymbol='+JSON.stringify(readFileSync('src/assets/brand/symbol.svg','utf8'))+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8')+'\n'+readFileSync('src/holding-ui.js','utf8')+'\n'+readFileSync('src/wallet-ui.js','utf8');
+function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null,walletService=null}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
@@ -31,6 +33,7 @@ function harness({requiresLogin=false,platform=null,actor=null,search='',publicR
     return {ok:true,status:200,json:async()=>({success:true})};
    }
    if(!signedIn)return {ok:false,status:401,json:async()=>({signIn:true,error:'Sign in'})};
+   if(_url==='/api/wallets'&&walletService){try{const input=JSON.parse(options.body),identity={...actor,sessionHash:'ui-test-wallet-session-binding'},data=input.action==='challenge'?{challenge:await walletService.challenge(identity,'https://test.local',input)}:input.action==='verify'?{wallet:await walletService.verify(identity,'https://test.local',input)}:await walletService.remove(identity,input);return {ok:true,status:200,json:async()=>data};}catch(error){return{ok:false,status:error.status||500,json:async()=>({error:error.message,code:error.code})};}}
    if(platform){try{const url=new URL('https://test.local'+_url);let selection={view:url.searchParams.get('view')||undefined,organizationId:url.searchParams.get('organization')||undefined,page:url.searchParams.get('page'),search:url.searchParams.get('search'),accountFilter:url.searchParams.get('accounts')};if(options?.method==='POST')selection=await platform.execute(actor,JSON.parse(options.body));const data=await platform.read(actor,selection);return {ok:true,status:200,json:async()=>({...data,user:actor.user})};}catch(error){return {ok:false,status:error.status||500,json:async()=>({error:error.message,code:error.code})};}}
    try{if(options?.method==='POST')stored=applyCommand(stored,JSON.parse(options.body));return{ok:true,status:200,json:async()=>({state:stored,...(requiresLogin?{user:{name:'Account owner',email:'owner@example.com'}}:{})})};}catch(e){return{ok:false,status:422,json:async()=>({error:e.message})};}
   }
@@ -324,4 +327,16 @@ test('UI: searches identity fields, distinguishes login email and exposes only u
  await h.click('close');await DB.query("INSERT INTO cc_account_controls (account_id,status,archived,revision,updated_at) VALUES ($1,'suspended',0,3,$2)",[member.accountId,new Date().toISOString()]);
  await h.click('platform-account-filter',{filter:'removed'});assert.match(h.nodes['#app'].innerHTML,/Profile &lt;img src=x&gt;/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Manage access for identity-root@example.com/);await h.click('account-manage-access',{id:member.accountId});assert.match(h.nodes['#dialog'].innerHTML,/Restore portal access/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Suspend all|Resume portal|data-action="platform-remove-account"/);
  await h.click('platform-restore-account',{id:member.accountId});await h.submit('platform-action-form',{note:'Explicit synthetic legacy recovery.'},{type:'platform-restore-account',values:JSON.stringify({accountId:member.accountId,revision:3})});assert.equal((await platform.read(member,{view:'shareholder'})).state.profile.name,'Profile <img src=x>');
+});
+
+test('UI: a wallet can be verified before KYC and is never signed without the explicit Sign message action',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),actor=platformActor('wallet-only');await platform.read(actor);await platform.execute(actor,{type:'onboard'});const walletService=createWallets(DB,platform),h=harness({platform,actor,walletService}),signer=testSigner();let signed=0;
+ h.context.walletTestRuntime={discover:()=>[{id:'qa-wallet',name:'QA <img src=x>'}],async connect(){return{address:signer.address,release(){},assertActive:async()=>{},sign:message=>{signed++;return signer.sign(message);}};}};vm.runInContext('walletRuntimePromise=Promise.resolve({walletRuntime:walletTestRuntime})',h.context);
+ await h.start({view:'shareholder'});await h.click('nav',{page:'profile'});assert.match(h.nodes['#app'].innerHTML,/Connect wallet/);assert.equal(h.context.ui.state.profile.kyc,false);await h.click('wallet-start');assert.match(h.nodes['#dialog'].innerHTML,/QA &lt;img src=x&gt;/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/<img src=x>/);
+ await h.click('wallet-connect',{provider:'qa-wallet'});assert.match(h.nodes['#dialog'].innerHTML,/Verify wallet control/);assert.equal(signed,0);await h.click('wallet-sign');assert.equal(signed,1);assert.equal((await walletService.list({...actor,sessionHash:'ui-test-wallet-session-binding'})).length,1);assert.equal(h.context.ui.state.profile.kyc,false);assert.equal(h.context.ui.state.holders.length,0);assert.match(h.nodes['#app'].innerHTML,/Receiving wallets/);
+ await h.click('sign-out');assert.equal(h.context.ui.state,null);assert.equal(h.nodes['#dialog'].innerHTML,'');assert.doesNotMatch(h.nodes['#app'].innerHTML,new RegExp(signer.address));
+});
+test('UI: closing the wallet connection dialog ignores late provider results',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const platform=createPlatform(DB),actor=platformActor('wallet-cancel');await platform.read(actor);await platform.execute(actor,{type:'onboard'});const walletService=createWallets(DB,platform),h=harness({platform,actor,walletService}),signer=testSigner();let resolve,released=0;
+ h.context.walletTestRuntime={discover:()=>[{id:'qa',name:'QA Wallet'}],connect:()=>new Promise(r=>resolve=r)};vm.runInContext('walletRuntimePromise=Promise.resolve({walletRuntime:walletTestRuntime})',h.context);await h.start({view:'shareholder'});await h.click('wallet-start');const running=h.click('wallet-connect',{provider:'qa'});while(!resolve)await Promise.resolve();await h.click('close');resolve({address:signer.address,release(){released++;},assertActive:async()=>{},sign:message=>signer.sign(message)});await running;assert.equal(released,1);assert.equal(h.nodes['#dialog'].open,false);assert.equal((await DB.query('SELECT id FROM cc_wallet_challenges')).length,0);
 });

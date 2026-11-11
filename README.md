@@ -6,7 +6,7 @@ Signed-out visitors first see a public service introduction explaining company t
 
 The hero uses the user-approved transparent illustration of a shareholder **keeping their stock holdings and receiving additional token rewards**. The PNG is displayed in full on the page background; it has no embedded text or shares-to-token conversion arrow. Current campaigns has no search field: cards stay in one horizontal row, with native swipe/trackpad/keyboard scrolling and previous/next controls only when the row overflows. The controls disable at either end. A single card fits the phone viewport; multiple phone cards reveal part of the next card.
 
-The read-only `/api/public-campaigns` endpoint requires no account and creates no identity. Its explicit projection excludes shareholder records, wallets, transactions, treasury, contacts, files, membership and internal moderation notes. Changes to listing and registration controls are reflected without a public cache. A `?campaign=...` link is navigation context, never authorization. The page no longer displays global Sandbox/Preview labels; verification and distribution capabilities remain simulated and their action-level descriptions remain accurate. The approved vertical hero asset and generation prompt are recorded in `src/assets/landing/README.md`.
+The read-only `/api/public-campaigns` endpoint requires no account and creates no identity. Its explicit projection excludes shareholder records, wallets, transactions, treasury, contacts, files, membership and internal moderation notes. Changes to listing and registration controls are reflected without a public cache. A `?campaign=...` link is navigation context, never authorization. The page no longer displays global Sandbox/Preview labels; action-level descriptions distinguish real access, wallet signatures and manual review from simulated KYC/broker checks and distributions. The approved vertical hero asset and generation prompt are recorded in `src/assets/landing/README.md`.
 
 ## Run locally
 
@@ -17,7 +17,7 @@ npm run dev
 
 Open **http://localhost:5173**. `http://127.0.0.1:5173` also works. On Mac, double-click `Start.command` or run `zsh Start.command`.
 
-Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon database and Auth SDKs used by the Vercel APIs. The localhost server continues to use built-in Node modules.
+Node.js **22.13 or later** is required. If the default Node is older, the launcher can use a compatible version already installed through nvm. Run `npm ci` after cloning to install the pinned Neon, wallet signature and build dependencies. Local storage uses Node's built-in SQLite.
 
 The local HTTP server stores data in `.local/workspace.sqlite`. Data survives browser reloads and server restarts. Localhost injects one explicit developer identity, which owns the existing sample companies. Company access rules and personal shareholder records use the same platform service as Vercel. The server listens on loopback only; never expose this developer identity on a public server.
 
@@ -96,7 +96,7 @@ Company name/ticker/contact details, company listing/status, account suspension 
 
 The ⓘ controls explain account access, company roles/listing, campaign moderation, the announcement and campaign-registration setting. Hover/focus shows a tooltip on desktop; clicking opens the same readable explanation on keyboard/touch devices. **Portal announcement** is a plain-text notice at the top of signed-in workspace pages; clear the field to remove it. **Accept new shareholder campaign registrations** controls new holdings registrations in published campaigns, not new account creation or existing reward claims.
 
-The shareholder Companies page now gives a short introduction and three steps: choose a company, add profile/holding details, then add a wallet and claim available rewards. Chain symbols use unchanged official Ethereum/Solana/BNB Chain SVG marks, embedded locally with no third-party image requests. Sources are recorded in `src/assets/chains/README.md`. Verification and payouts remain simulated.
+The shareholder Companies page now gives a short introduction and three steps: choose a company, add profile/holding details, then add a wallet and claim available rewards. Chain symbols use unchanged official Ethereum/Solana/BNB Chain SVG marks, embedded locally with no third-party image requests. Sources are recorded in `src/assets/chains/README.md`. KYC/broker checks and payouts remain simulated; wallet control is verified by signature.
 
 ### Initialize the platform owner
 
@@ -110,7 +110,7 @@ Existing sample companies remain intact and hidden/inactive until staff choose *
 
 1. Select **Shareholder**, then **CURRENC Group → View rewards → Register**.
 2. Complete demo KYC with `Demo Investor / demo@example.com` and register 5,000 shares.
-3. Select Ethereum, Solana or BNB Chain and save the supplied demo wallet address.
+3. In the authenticated portal, connect and verify your own Ethereum, Solana or BNB Chain wallet, then select it as the campaign receiving wallet. The optional offline export retains its demo-address form.
 4. An owner, admin or operator selects **Company → CURRENC Group → Shareholders** and approves Iris. Approve your own registration too if you chose manual statement review.
 5. Open **Campaigns → Shareholder Welcome Rewards → Preview snapshot → Lock snapshot**.
 6. Select **Shareholder → My rewards → View reward → Simulate claim** to claim 500 uCURR.
@@ -186,14 +186,28 @@ Files and decisions are stored in separate private database tables through `/api
 
 Each submission/review updates the company state, immutable evidence/decision and team audit atomically with revision and current-access checks. Stale reviews cannot approve an older version. Pending and needs-information submissions block snapshot locking; after locking, shares, document versions and eligibility are read-only. The registration switch blocks new registrations while permitting requested follow-up on existing registrations. Platform pauses block changes.
 
-This is a real upload and manual eligibility-review workflow. It does not authenticate a statement with a broker or complete third-party KYC. Wallet ownership and payouts remain simulated. Use synthetic or redacted test documents while those integrations and operational policies are unfinished.
+This is a real upload and manual eligibility-review workflow. It does not authenticate a statement with a broker or complete third-party KYC. Wallet ownership uses signed messages; payouts remain simulated. Use synthetic or redacted test documents while those integrations and operational policies are unfinished.
+
+## Receiving wallets and ownership verification
+
+Open **Shareholder → Identity & wallets → Connect wallet**, choose Ethereum, BNB Chain or Solana, approve connection in your wallet, review the address and press **Sign message**. This is available before completing KYC or registering holdings. The server verifies the signature and saves the address to your authenticated account, so saved wallets appear on other devices after email sign-in. Opening a campaign's receiving-wallet step lets you choose a saved verified wallet for that campaign's supported network.
+
+Browser wallets are discovered through EIP-6963/EIP-1193 for Ethereum/BNB and Solana Wallet Standard, with injected Phantom/Solflare support. Ethereum/BNB verification currently supports standard signing accounts (EOAs), not contract-wallet signatures. Mobile users need a wallet app's in-app browser; QR/WalletConnect and general mobile-browser deep links are not implemented. A wallet app must support the selected network and message signing.
+
+The wallet requests a connection and a plain message signature only: no transaction, token approval, permit, private key or seed phrase. The backend generates a five-minute, one-use challenge bound to the signed-in account, trusted provider session, site origin, address and network. Account/network changes cancel an in-progress signing flow. Cross-account/session replay, expired/used challenges, excessive attempts and stale wallet selections are rejected. A wallet may be independently verified for multiple accounts; this does not merge identities or enable wallet-based login.
+
+`/api/wallets` and additive migration `0005_wallets.sql` store a separate per-account registry, immutable proof history and private wallet audit. Nonce consumption, wallet saving and audit commit atomically. Workspace/list responses expose only your own saved address/network/time/revision; signatures and session bindings are not exposed in those responses, public campaigns, company JSON or browser storage. Disabled accounts cannot manage wallets and outstanding challenges are invalidated on disable.
+
+**Manage → Remove wallet** unlinks the saved address and invalidates outstanding matching challenges; it preserves campaign records and previous payouts. Reverification restores the same registry entry with a new proof. New campaign selections require a current proof owned by the signed-in account. Any claim locks that campaign's receiving address/network; removing a proof-bound wallet blocks subsequent simulated claims/distributions until the same address is verified again. Older demo addresses/history are retained and remain explicitly unverified, never automatically promoted to a signed proof. Legacy simulated payouts remain compatible; a future real payout service must require current verification for every recipient.
+
+This release implements wallet control verification and receiving-address selection. It does not check balances, deploy token contracts, request token approvals, send tokens, charge gas or reconcile transactions on-chain. Existing test ledgers and `SIM-` distributions remain simulations.
 
 ## Sandbox scope
 
-KYC, holdings, wallet verification and distributions are simulated. Login, staff company setup, evidence storage, manual campaign reviews and access controls are real application features; platform approval is a manual publishing decision and does not independently verify legal company representation. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter shareholder identity documents, broker credentials, wallet private keys or seed phrases.
+Third-party KYC, broker checks and distributions are simulated. Login, wallet signatures, staff company setup, evidence storage, manual campaign reviews and access controls are real application features; platform approval is a manual publishing decision and does not independently verify legal company representation. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter shareholder identity documents, broker credentials, wallet private keys or seed phrases.
 
 CURRENC Group / CURR is a real-brand demo; Northstar Labs / NRTH and Harbor Energy / HBR are fictional. All campaign and shareholder data is sample data.
 
 One allocation is shared across receiving networks. Each network has its own test balance; there is no cross-chain bridge. Wallet changes are blocked after a claim. Allocations round down to 6 decimals; caps and rounding remainders are not redistributed. Unlock percentages are raised manually. Form dates use UTC; activity times use Hong Kong time.
 
-Not implemented: third-party KYC, broker or company representation verification, independent historical holdings verification, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.
+Not implemented: third-party KYC, broker or company representation verification, independent historical holdings verification, contract-wallet signatures, WalletConnect, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.

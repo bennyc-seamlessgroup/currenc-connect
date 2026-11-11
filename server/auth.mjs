@@ -46,7 +46,7 @@ export function createAuthentication({environment=()=>process.env,proxy=handleAu
     if(!response.ok)return {user:null,issuer,headers};
     const data=await response.json();
     const valid=data?.session && typeof data?.user?.id==='string' && data.user.id.length>0 && typeof data.user.email==='string' && data.session.userId===data.user.id && Number.isFinite(Date.parse(data.session.expiresAt)) && Date.parse(data.session.expiresAt)>Date.now();
-    return {user:valid?data.user:null,issuer,headers};
+    return {user:valid?data.user:null,issuer,headers,sessionId:valid&&typeof data.session.id==='string'?data.session.id:undefined};
   }
   async function handle(request) {
     const action=new URL(request.url).searchParams.get('action');

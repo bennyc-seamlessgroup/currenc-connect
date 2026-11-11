@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {verifiedTestWallet} from './helpers/wallets.mjs';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,readdirSync} from 'node:fs';
@@ -6,6 +7,8 @@ import worker from '../dist/server/index.js';
 import entry from '../api/workspace.js';
 import authEntry from '../api/auth.js';
 import documentEntry from '../api/company-document.js';
+import walletEntry from '../api/wallets.js';
+import {createPlatform} from '../server/platform.mjs';
 import publicEntry from '../api/public-campaigns.js';
 import {seedState} from '../lib/domain.ts';
 import {accountWorkspaceId,legacyWorkspaceId,createVercelWorkspaceHandler} from '../server/vercel-workspace.mjs';
@@ -43,10 +46,10 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(config.buildCommand,'npm run build');
   assert.equal(JSON.parse(readFileSync('package.json','utf8')).engines.node,'22.x');
   assert.equal(typeof entry.fetch,'function');assert.equal(typeof authEntry.fetch,'function');
-  assert.equal(typeof documentEntry.fetch,'function');
+  assert.equal(typeof documentEntry.fetch,'function');assert.equal(typeof walletEntry.fetch,'function');
   assert.equal(typeof publicEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
-  assert.deepEqual(files,['app.js','favicon.svg','images','index.html','styles.css']);
+  assert.deepEqual(files,['app.js','favicon.svg','images','index.html','styles.css','wallet-runtime.js']);
   const hero=await worker.fetch(new Request(origin+'/images/shareholder-rewards.png'),{});
   assert.equal(hero.headers.get('Content-Type'),'image/png');
   assert.deepEqual(Buffer.from(await hero.arrayBuffer()),readFileSync('src/assets/landing/shareholder-rewards.png'));
@@ -123,7 +126,7 @@ test('authenticated concurrent claims across devices settle exactly once',async(
   const command=async cmd=>{const response=await handle(request(cookieA,{...cmd,organizationId}));assert.equal(response.status,200,await response.clone().text());return response.json();};
   await command({type:'kyc',name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:true});
   await command({type:'verify',campaignId,shares:5000,source:'broker'});
-  await command({type:'wallet',campaignId,chain:'ETH',wallet:'0x4444444444444444444444444444444444444444'});
+  const wallet=await verifiedTestWallet(DB,createPlatform(DB),{accountId:accountWorkspaceId(issuer,userA.id),issuer,user:userA});await command({type:'wallet',campaignId,walletId:wallet.id,walletRevision:wallet.revision});
   await command({type:'review',holderId,approved:true});
   await command({type:'snapshot',campaignId});
   const responses=await Promise.all([cookieA,cookieA2].map(cookie=>handle(request(cookie,{type:'claim',organizationId,campaignId}))));

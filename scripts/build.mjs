@@ -1,15 +1,18 @@
 import {readFile,writeFile,mkdir,rm,cp} from 'node:fs/promises';
 import {dirname} from 'node:path';
+import {build as bundle} from 'esbuild';
 import {stripTypeScriptTypes} from 'node:module';
 const domain=stripTypeScriptTypes(await readFile('lib/domain.ts','utf8'));
 const chainLogos=Object.fromEntries(await Promise.all([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(async([chain,file])=>[chain,'data:image/svg+xml;base64,'+(await readFile(`src/assets/chains/${file}.svg`)).toString('base64')])));
 const brandSymbol=await readFile('src/assets/brand/symbol.svg','utf8');
-const app='const brandSymbol='+JSON.stringify(brandSymbol)+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8')+'\n'+await readFile('src/holding-ui.js','utf8');
+const app='const brandSymbol='+JSON.stringify(brandSymbol)+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8')+'\n'+await readFile('src/holding-ui.js','utf8')+'\n'+await readFile('src/wallet-ui.js','utf8');
+const walletRuntime=(await bundle({entryPoints:['src/wallet-runtime.js'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',minify:true})).outputFiles[0].text;
 const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
  '/styles.css':{type:'text/css; charset=utf-8',body:await readFile('src/styles.css','utf8')},
  '/app.js':{type:'text/javascript; charset=utf-8',body:domain+'\n'+app},
  '/images/shareholder-rewards.png':{type:'image/png',base64:true,body:(await readFile('src/assets/landing/shareholder-rewards.png')).toString('base64')},
+ '/wallet-runtime.js':{type:'text/javascript; charset=utf-8',body:walletRuntime},
  '/favicon.svg':{type:'image/svg+xml',body:brandSymbol}
 };
 await rm('dist',{recursive:true,force:true});await mkdir('dist/server',{recursive:true});await mkdir('dist/client',{recursive:true});await mkdir('dist/.openai',{recursive:true});

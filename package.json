@@ -16,6 +16,13 @@
   },
   "dependencies": {
     "@neondatabase/auth": "0.6.0-beta",
-    "@neondatabase/serverless": "1.2.0"
+    "@neondatabase/serverless": "1.2.0",
+    "@noble/curves": "2.4.0",
+    "@wallet-standard/app": "1.1.1",
+    "bs58": "6.0.0",
+    "viem": "2.57.17"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

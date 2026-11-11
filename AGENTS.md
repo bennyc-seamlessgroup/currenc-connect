@@ -4,6 +4,10 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11 最新錢包：`/api/wallets`／`server/wallets.mjs`／`src/wallet-ui.js`／延遲載入 `wallet-runtime.js`／增量 migration `0005_wallets.sql` 已實作真實 ETH／BNB EOA 及 Solana 訊息簽名驗證，可在 KYC／持股登記前獨立完成。五分鐘、單次 nonce 綁定已驗證帳戶、provider session ID、origin、鏈及地址；cookie 更新不影響同一 session，不能跨 session／帳戶重播。簽名／nonce／session binding 不可放入 workspace JSON、公開 API、localStorage 或一般稽核。驗證消耗、registry、不可覆寫 proof 及私密錢包 audit 必須原子保存。
+- 活動新接收地址只可選該帳戶仍有效的 verified wallet ID＋revision，不信任客戶端地址／鏈。移除錢包保留活動／配額／交易及 proof 歷史，作廢待簽 challenge；重新簽名恢復同一 ID。已領取後地址／鏈鎖定不變；有新 proof 的地址被撤銷時，後續模擬領取／批發須先重新驗證同地址。舊示範地址保留但不可自動標為已驗證；舊模擬發放相容不代表可作真實發放。wallet registry 只回傳本人資料，公司角色／平台角色不能管理他人錢包。停用帳戶同時作廢待簽 challenge。
+- 現階段只連接及簽署訊息，不發交易／approval／permit、不查餘額、不付 gas。KYC、券商 API 及代幣轉帳仍未接駁。支援 EIP-6963／EIP-1193、Solana Wallet Standard、注入式 Phantom／Solflare；未支援合約錢包 ERC1271、WalletConnect QR 或一般手機瀏覽器 deep link；手機需錢包 App 內建瀏覽器。不要誤稱已完成鏈上整合或真實 MetaMask／Phantom 彈窗驗收。
+- 錢包版本 110 項測試、建置及檢查通過；獨立 PostgreSQL engine 已驗證三鏈簽名、原子 proof／audit、重播／撤銷、活動綁定及模擬領取。原生隔離 QA 用 ephemeral test keys／合成注入 provider，KYC Pending 時已保存三鏈錢包，移除／重驗 Solana，390px 簽名訊息／地址無橫溢，BNB 綁定活動後配額／領取／交易仍為零。未使用正式使用者錢包或新增正式資金／交易；正式部署結果見 STATUS。
 - 2026-11-11 最新：Accounts 全面存取操作合併為 Disable all portal access／Restore portal access，不再提供 Suspend／Resume。舊 status=suspended 帳戶以 Disabled 顯示並保持封鎖，不作資料遷移或自動解封；同一 Restore 命令可明確還原舊暫停或 archived 帳戶。舊 platform-account-status 僅作同一流程的相容別名，不再寫入新 suspended 狀態。公司自身的 Suspend／Resume 不受這項帳戶改動影響。
 - 平台帳戶搜尋支援登入電郵、帳戶顯示名，以及已完成模擬身份表格的姓名／填報電郵／國家地區。身份資料在 Manage access → Identity profile 收起顯示，標示 Completed (demo)／第三方 KYC 未接駁；不能當成真實 KYC。未完成表格的預設地區不納入搜尋，登入及權限仍綁定已驗證身份，不可改用填報電郵。只搜尋及投影明確 allowlist，不回傳原 profile JSON 或未知敏感欄位。DB.dialect 區分 Neon JSON 與 SQLite JSON 語法。Current／Disabled 切換保留查詢。92 項測試及桌面／390px 驗證通過，沒有更改正式帳戶／角色。
 - 2026-11-11 使用者要求不要把全部操作按鈕攤開。Accounts 每列只保留 Manage access，對話框列出股東、平台及所有公司角色；公司角色可在此編輯／移除。Suspend／Disable 收在 Account controls，Active 預設收起，停用／暫停帳戶預設展開以便還原。手機列表採簡潔雙欄，不需橫捲找按鈕。後端僅向授權平台人員回傳當頁帳戶的公司 ID／名稱／角色；沿用現有角色命令、stale-role 及稽核保護。89 項測試及桌面／390px 驗證通過，沒有更改任何正式帳戶權限。不要再把帳戶操作攤開在主列表。

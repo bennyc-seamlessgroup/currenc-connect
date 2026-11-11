@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {verifiedTestWallet} from './helpers/wallets.mjs';
 import assert from 'node:assert/strict';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 import {createPlatform,PlatformError} from '../server/platform.mjs';
@@ -105,16 +106,18 @@ test('shareholders see only their own registrations, wallets and payouts; concur
   const cid=await campaign(h,owner,org);
   assert.equal((await h.read(alice,{view:'shareholder'})).state.campaigns.length,0);
   await h.execute(owner,{type:'open',organizationId:org,campaignId:cid});
+  const walletFixtures=new Map();
   for(const [user,shares,wallet] of [[alice,5000,'0x'+'1'.repeat(40)],[bob,10000,'0x'+'2'.repeat(40)]]) {
     await identity(h,user);await h.execute(user,{type:'verify',organizationId:org,campaignId:cid,shares,source:'manual',accountId:owner.accountId});
-    await h.execute(user,{type:'wallet',organizationId:org,campaignId:cid,chain:'ETH',wallet});
+    const verified=await verifiedTestWallet(h.DB,h,user);walletFixtures.set(user.accountId,verified);
+    await h.execute(user,{type:'wallet',organizationId:org,campaignId:cid,walletId:verified.id,walletRevision:verified.revision});
   }
   let adminView=await h.read(owner,{view:'company',organizationId:org});
   assert.equal(adminView.state.holders.length,2);
   const bHolder=adminView.state.holders.find(h=>h.name==='bob');
-  await h.execute(alice,{type:'wallet',organizationId:org,campaignId:cid,holderId:bHolder.id,chain:'ETH',wallet:'0x'+'3'.repeat(40)});
+  const replacement=await verifiedTestWallet(h.DB,h,alice);await h.execute(alice,{type:'wallet',organizationId:org,campaignId:cid,holderId:bHolder.id,walletId:replacement.id,walletRevision:replacement.revision});
   adminView=await h.read(owner,{view:'company',organizationId:org});
-  assert.equal(adminView.state.holders.find(h=>h.name==='bob').wallet,'0x'+'2'.repeat(40));
+  assert.equal(adminView.state.holders.find(h=>h.name==='bob').wallet,walletFixtures.get(bob.accountId).address);
   for(const holder of adminView.state.holders)await h.execute(owner,{type:'review',organizationId:org,holderId:holder.id,approved:true});
   await h.execute(owner,{type:'fund',organizationId:org,company:org,chain:'ETH',amount:5000});
   await h.execute(owner,{type:'snapshot',organizationId:org,campaignId:cid});

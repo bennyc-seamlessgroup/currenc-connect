@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {verifiedTestWallet} from './helpers/wallets.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -33,7 +34,7 @@ async function evidence(h,id,purpose,bytes=pdf){const current=await app(h,id);re
 async function review(h,id,action='activate',extras={}){const current=await app(h,id);return h.execute(root,{type:'platform-review-company',organizationId:id,revision:current.revision,action,note:'Workflow test decision only.',...extras});}
 async function ready(h){const id=await createCompany(h);await save(h,id);await review(h,id,'show');return id;}
 async function draftCampaign(h,id){const today=new Date().toISOString().slice(0,10),deadline=new Date(Date.now()+86400000*30).toISOString().slice(0,10);await h.execute(owner,{type:'create',organizationId:id,input:{company:id,name:'Test rewards',description:'Workflow sample',mode:'ratio',ratio:0.1,budget:10000,minimum:100,cap:10000,release:100,snapshotDate:today,deadline,distribution:'claim',chains:['ETH','SOL','BNB']}});return (await h.read(owner,{view:'company',organizationId:id})).state.campaigns.at(-1).id;}
-async function register(h,id,cid,person=investor){await h.execute(person,{type:'kyc',name:person.user.name,email:'demo@example.com',country:'Hong Kong',consent:true});await h.execute(person,{type:'verify',organizationId:id,campaignId:cid,shares:5000,source:'broker'});await h.execute(person,{type:'wallet',organizationId:id,campaignId:cid,chain:'ETH',wallet:'0x'+'1'.repeat(40)});}
+async function register(h,id,cid,person=investor){await h.execute(person,{type:'kyc',name:person.user.name,email:'demo@example.com',country:'Hong Kong',consent:true});await h.execute(person,{type:'verify',organizationId:id,campaignId:cid,shares:5000,source:'broker'});const wallet=await verifiedTestWallet(h.DB,h.platform,person);await h.execute(person,{type:'wallet',organizationId:id,campaignId:cid,walletId:wallet.id,walletRevision:wallet.revision});}
 const rejects=(promise,status)=>assert.rejects(promise,e=>e instanceof PlatformError&&e.status===status);
 
 test('platform owner bootstrap is deployment-controlled, verified, issuer-bound and permanent by account ID',async t=>{

@@ -12,6 +12,8 @@ export type Holder = {
   accountId?: string;
   status: 'verified' | 'pending' | 'needs_info' | 'rejected'; allocation: number; claimed: number;
   evidence?: {id:string;version:number};
+  walletVerification?: {walletId:string;proofId:string;verifiedAt:string};
+  walletVerified?: boolean;
   chain?: Chain; wallet?: string; source: string; asOf: string;
 };
 export type Entry = { id: string; at: string; title: string; detail: string; kind: 'info' | 'success' | 'warning' };
@@ -85,7 +87,7 @@ function campaignSettings(input: Record<string, any>, companies: Company[], toda
   assert(registrationDeadline >= snapshotDate && registrationDeadline >= today && claimDeadline >= registrationDeadline, 'Registration must end on or after the record date and today; claims must end on or after registration.');
   return {company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
 }
-export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile']}): State {
+export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile'];walletVerification?:{walletId:string;proofId:string;verifiedAt:string;chain:Chain;address:string}}): State {
   assert(raw && typeof raw === 'object', 'Invalid command');
   const cmd = raw as Record<string, any>;
   const s = structuredClone(current);
@@ -129,9 +131,14 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
     }
     case 'wallet': {
       const c = campaign(); const h = s.holders.find(h => own(h,c)); assert(h, 'Register holdings first.');
-      assert(c.chains.includes(cmd.chain), 'This network is not supported by the campaign.'); assert(h.claimed === 0, 'The receiving network cannot change after a claim.');
-      const wallet = label(cmd.wallet, 'Wallet address', 60); assert(validateWallet(cmd.chain, wallet), 'Invalid wallet address format');
-      h.chain = cmd.chain; h.wallet = wallet; log('Demo wallet saved', `${CHAIN_NAMES[h.chain!]} · Address format checked only`); break;
+      const verified = actor?.walletVerification;
+      if(actor)assert(verified && verified.walletId === cmd.walletId, 'Connect and verify a wallet before choosing a receiving address.');
+      const chain = verified?.chain || cmd.chain;
+      assert(c.chains.includes(chain), 'This network is not supported by the campaign.'); assert(h.claimed === 0, 'The receiving network cannot change after a claim.');
+      const wallet = label(verified?.address || cmd.wallet, 'Wallet address', 60); assert(validateWallet(chain, wallet), 'Invalid wallet address format');
+      h.chain = chain; h.wallet = wallet;
+      if(verified)h.walletVerification={walletId:verified.walletId,proofId:verified.proofId,verifiedAt:verified.verifiedAt};else delete h.walletVerification;
+      log(verified?'Receiving wallet selected':'Demo wallet saved', `${CHAIN_NAMES[h.chain!]} · ${verified?'Wallet control verified':'Address format checked only'}`); break;
     }
     case 'create': {
       const settings = campaignSettings(cmd.input || {}, companies, at.slice(0,10));

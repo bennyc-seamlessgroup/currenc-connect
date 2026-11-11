@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {applyCommand,COMPANIES} from '../dist/server/domain.mjs';
+import {applyCommand,COMPANIES,claimable} from '../dist/server/domain.mjs';
 import {PlatformError,requireValue} from './errors.mjs';
+import {readVerifiedWallets,attachWalletControl,walletForBinding} from './wallets.mjs';
 import {createGovernance,validateCompanyInfo} from './governance.mjs';
 
 export {PlatformError} from './errors.mjs';
@@ -95,7 +96,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       requireValue(id,'Your team must provide company access first.',403);
       const row=await organization(id,identity.accountId);
       state={...parse(row),profile:JSON.parse(account.profile)};
-      state.holders=state.holders.map(h=>projectHolder(h,identity.accountId));
+      state.holders=(await attachWalletControl(DB,state.holders)).map(h=>projectHolder(h,identity.accountId));
       const approval=await governance.status(id),approved=approval.status==='approved',suspended=approval.status==='suspended';
       const grants=permissions(row.role);
       context={mode,organizationId:id,role:row.role,approvalStatus:approval.status,listed:approval.visible===1,permissions:{...grants,campaigns:grants.campaigns&&!suspended,publish:grants.campaigns&&approved,treasury:grants.treasury&&approved,team:grants.team&&!suspended,lifecycle:grants.lifecycle&&!suspended}};
@@ -112,12 +113,13 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
         const visible=data.campaigns.filter(c=>(row.approval_status==='approved'&&row.visible===1&&moderation(c).visible===1&&!['draft','closed','archived','deleted'].includes(c.status))||mine.some(h=>h.campaign===c.id));
         if(!visible.length)continue;
         state.companies.push(JSON.parse(row.company));state.campaigns.push(...visible.map(c=>({...publicCampaign(c),platform:{companyStatus:row.approval_status,listed:row.visible===1,...moderation(c)}})));
-        state.holders.push(...mine.map(h=>projectHolder(h,identity.accountId)));
+        state.holders.push(...mine);
         state.transactions.push(...data.transactions.filter(t=>mine.some(h=>h.id===t.holder)));
       }
+      state.holders=(await attachWalletControl(DB,state.holders)).map(h=>projectHolder(h,identity.accountId));
       state.activity=JSON.parse(account.activity);
     }
-    return {state,revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
+    return {state,wallets:await readVerifiedWallets(DB,identity.accountId),revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
   }
   async function createOrganization(identity,cmd) {
     await governance.requireAdmin(identity);
@@ -236,12 +238,20 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
         const campaign=current.campaigns.find(c=>c.id===cmd.campaignId);
         requireValue(campaign&&Number.isInteger(cmd.campaignRevision)&&cmd.campaignRevision===(campaign.revision||0),'The campaign changed. Reload before updating it.',409);
       }
-      const next=domainCommand(current,cmd,now(),{accountId:identity.accountId,profile:JSON.parse(account.profile)});
+      const selectedWallet=cmd.type==='wallet'?await walletForBinding(DB,identity.accountId,cmd.walletId,cmd.walletRevision):null;
+      const walletVerification=selectedWallet?{walletId:selectedWallet.id,proofId:selectedWallet.verification_id,verifiedAt:selectedWallet.verified_at,chain:selectedWallet.chain,address:selectedWallet.address}:undefined;
+      const payoutCampaign=current.campaigns.find(c=>c.id===cmd.campaignId);
+      const proofRows=['claim','distribute'].includes(cmd.type)?current.holders.filter(h=>h.campaign===cmd.campaignId&&(cmd.type!=='claim'||h.accountId===identity.accountId)&&h.wallet&&h.status==='verified'&&h.walletVerification&&payoutCampaign&&claimable(payoutCampaign,h)>0):[];
+      if(proofRows.length)requireValue((await attachWalletControl(DB,proofRows)).every(h=>h.walletVerified),'A receiving wallet is no longer verified. Reverify it before distributing rewards.',409);
+      const next=domainCommand(current,cmd,now(),{accountId:identity.accountId,profile:JSON.parse(account.profile),walletVerification});
       if(next.activity[0]?.id!==current.activity[0]?.id)next.activity[0]={...next.activity[0],actor:identity.user.email};
-      const guard=(isShareholder?'':` AND EXISTS (SELECT 1 FROM cc_memberships WHERE organization_id=$2 AND account_id=$4 AND role IN (${allowed.map(role=>`'${role}'`).join(',')}))`)+` AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$4 AND (status='suspended' OR archived=1)) AND EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$2 AND ${management?"status<>'suspended'":"status='approved'"}${cmd.type==='verify'?' AND visible=1':''})${cmd.type==='wallet'||management?'':" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND paused=1)"}${cmd.type==='verify'?" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND visible=0) AND EXISTS (SELECT 1 FROM cc_portal_settings WHERE id='portal' AND shareholder_registrations=1)":''}`;
+      let guard=(isShareholder?'':` AND EXISTS (SELECT 1 FROM cc_memberships WHERE organization_id=$2 AND account_id=$4 AND role IN (${allowed.map(role=>`'${role}'`).join(',')}))`)+` AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$4 AND (status='suspended' OR archived=1)) AND EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$2 AND ${management?"status<>'suspended'":"status='approved'"}${cmd.type==='verify'?' AND visible=1':''})${cmd.type==='wallet'||management?'':" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND paused=1)"}${cmd.type==='verify'?" AND NOT EXISTS (SELECT 1 FROM cc_campaign_controls WHERE organization_id=$2 AND campaign_id=$5 AND visible=0) AND EXISTS (SELECT 1 FROM cc_portal_settings WHERE id='portal' AND shareholder_registrations=1)":''}`;
       const values=[json(next),row.id,row.revision,identity.accountId];if(cmd.type!=='wallet'&&!management)values.push(campaignRef);
+      if(selectedWallet){const id='$'+(values.push(selectedWallet.id)),revision='$'+(values.push(selectedWallet.revision));guard+=` AND EXISTS (SELECT 1 FROM cc_verified_wallets WHERE id=${id} AND account_id=$4 AND revision=${revision} AND revoked_at IS NULL)`;}
+      const proofIds=[...new Set(proofRows.map(h=>h.walletVerification.walletId))];
+      if(proofIds.length){const ids=proofIds.map(id=>'$'+values.push(id));guard+=` AND (SELECT COUNT(*) FROM cc_verified_wallets WHERE id IN (${ids.join(',')}) AND revoked_at IS NULL)=${proofIds.length}`;}
       const update=statement(`UPDATE cc_organizations SET data=$1,revision=revision+1 WHERE id=$2 AND revision=$3${guard} RETURNING revision`,values);
-      const audited=['edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type);
+      const audited=['wallet','edit-campaign','delete-draft','restore-draft','archive-campaign'].includes(cmd.type);
       const detail={campaign:campaignRef,name:next.campaigns.find(c=>c.id===campaignRef)?.name,action:cmd.type,...(cmd.input?{fields:Object.keys(cmd.input)}:{})};
       const result=audited?await DB.atomicChange(update,[
         governance.audit(identity.accountId,'Campaign '+cmd.type,'company',row.id,detail),
