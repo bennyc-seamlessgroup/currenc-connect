@@ -172,12 +172,24 @@ Hosted company navigation lists only owned companies or accepted memberships. Sh
 
 The original Sites Worker demo is retained at `dist/server/index.js`, with its existing project identity in `.openai/hosting.json`. It requires a `DB` D1 binding and a trusted gateway identity. It and the optional offline export retain the earlier single-user demo flow; the company/team access platform runs on Vercel and localhost. No Sites deployment is created by this change.
 
+## Holding evidence and manual review
+
+Signed-in shareholders now submit a PDF, PNG or JPEG holding statement from a campaign's Register action. Enter shares and the date evidenced by the statement. Each file is limited to 2 MB; up to 10 immutable versions are kept per registration. Pending submissions wait for review. A request for more information or rejection includes the reviewer's reason and lets the shareholder submit a new version before registration closes.
+
+Company Owner/Admin/Operator members use Shareholders → Review to download the exact document version, request more information, reject, or approve the shares and holding date. Approval requires a reason and confirmation that the holder name, company, shares and campaign record date were checked. Another reviewer must review a team member's own submission. Viewers, unrelated accounts, platform administrators without a company reviewer membership, and other companies cannot access the files. All reads recheck account and company membership permissions.
+
+Files and decisions are stored in separate private database tables through `/api/holding-evidence`, with no public file URL. Responses use `no-store`; downloads are attachments with `nosniff` and a restrictive content policy. Document bytes and filenames never enter workspace JSON, localStorage, public campaign responses or audit logs. Small bounded files currently use private Neon/SQLite storage alongside the existing internal company document service; a larger-volume rollout should move file contents to managed private object storage with an explicit retention policy. Company-registration documents remain staff-only and separate.
+
+Each submission/review updates the company state, immutable evidence/decision and team audit atomically with revision and current-access checks. Stale reviews cannot approve an older version. Pending and needs-information submissions block snapshot locking; after locking, shares, document versions and eligibility are read-only. The registration switch blocks new registrations while permitting requested follow-up on existing registrations. Platform pauses block changes.
+
+This is a real upload and manual eligibility-review workflow. It does not authenticate a statement with a broker or complete third-party KYC. Wallet ownership and payouts remain simulated. Use synthetic or redacted test documents while those integrations and operational policies are unfinished.
+
 ## Sandbox scope
 
-KYC, holdings, wallet verification and distributions are simulated. Login, company applications, evidence storage and access controls are real application features; platform approval is a manual publishing decision and does not independently verify legal company representation. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter shareholder identity documents, broker credentials, wallet private keys or seed phrases.
+KYC, holdings, wallet verification and distributions are simulated. Login, staff company setup, evidence storage, manual campaign reviews and access controls are real application features; platform approval is a manual publishing decision and does not independently verify legal company representation. Test tokens have no asset value. `SIM-` record IDs are not blockchain transaction hashes. Do not enter shareholder identity documents, broker credentials, wallet private keys or seed phrases.
 
 CURRENC Group / CURR is a real-brand demo; Northstar Labs / NRTH and Harbor Energy / HBR are fictional. All campaign and shareholder data is sample data.
 
 One allocation is shared across receiving networks. Each network has its own test balance; there is no cross-chain bridge. Wallet changes are blocked after a claim. Allocations round down to 6 decimals; caps and rounding remainders are not redistributed. Unlock percentages are raised manually. Form dates use UTC; activity times use Hong Kong time.
 
-Not implemented: third-party KYC, broker or company representation verification, historical holdings evidence, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.
+Not implemented: third-party KYC, broker or company representation verification, independent historical holdings verification, wallet signatures, smart contracts, gas, on-chain transfers or reconciliation, enterprise SSO, dual approval, automatic invitation emails, automated snapshots or linear vesting.

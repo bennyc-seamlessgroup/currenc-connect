@@ -47,7 +47,8 @@ export async function getCloudDatabase(connectionString) {
       const schema=await readFile(new URL('../drizzle/0001_platform.sql',import.meta.url),'utf8');
       const governance=await readFile(new URL('../drizzle/0002_governance.sql',import.meta.url),'utf8');
       const accounts=await readFile(new URL('../drizzle/0003_account_lifecycle.sql',import.meta.url),'utf8');
-      const migrations=['SELECT pg_advisory_xact_lock(71540320261110)','CREATE TABLE IF NOT EXISTS currenc_connect_workspaces (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)',...(schema+';'+governance+';'+accounts).split(';').map(s=>s.trim()).filter(Boolean)];
+      const evidence=await readFile(new URL('../drizzle/0004_holding_evidence.sql',import.meta.url),'utf8');
+      const migrations=['SELECT pg_advisory_xact_lock(71540320261110)','CREATE TABLE IF NOT EXISTS currenc_connect_workspaces (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)',...(schema+';'+governance+';'+accounts+';'+evidence).split(';').map(s=>s.trim()).filter(Boolean)];
       await sql.transaction(migrations.map(s=>sql.query(s,[])));
       return createNeonDatabase((statement,values=[])=>sql.query(statement,values),statements=>sql.transaction(statements.map(({sql:statement,values=[]})=>sql.query(statement,values))));
     })();

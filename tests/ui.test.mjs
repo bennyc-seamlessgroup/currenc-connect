@@ -10,7 +10,7 @@ import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
-const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8');
+const app='const brandSymbol='+JSON.stringify(readFileSync('src/assets/brand/symbol.svg','utf8'))+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8')+'\n'+readFileSync('src/holding-ui.js','utf8');
 function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null}={}){
  let signedIn=!requiresLogin;
  let stored=seedState();const nodes={};const handlers={};const storage=new Map();
@@ -203,7 +203,7 @@ test('UI: company owners create a workspace, manage invitations and safely rende
  await h.click('mode',{mode:'shareholder'});
  await h.submit('kyc-form',{name:'Demo',email:'demo@example.com',country:'Hong Kong',consent:'on'});
  await h.click('company-rewards',{company:org});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/<svg onload/);
- await h.click('join',{id:cid});assert.match(h.nodes['#dialog'].innerHTML,/verify-form/);
+ await h.click('join',{id:cid});assert.match(h.nodes['#dialog'].innerHTML,/holding-upload-form/);
  assert.match(h.nodes['#dialog'].innerHTML,/&lt;svg/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/<svg onload/);
 });
 

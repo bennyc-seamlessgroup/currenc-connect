@@ -521,3 +521,10 @@ dialog::backdrop { background: #152c2c66; }
 .chain-icon.sol { background: #101817; }
 .chain-icon.bnb { background: #111817; }
 @media (max-width: 640px) { .help-tip .help-popover { display: none !important; } }
+
+.badge.needs_info{background:#fff1d6;color:#855809}
+.evidence-heading{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:8px 0 24px}.evidence-feedback{padding:20px;background:#f2f6ef;border-radius:10px;margin-bottom:20px;overflow-wrap:anywhere}.evidence-feedback p{margin-bottom:0;line-height:1.6}.evidence-versions{margin:20px 0}.evidence-versions details{border-bottom:1px solid var(--line);padding:16px 0}.evidence-versions summary{cursor:pointer;font-weight:600;padding-bottom:12px}.evidence-versions p{font-size:14px;line-height:1.6;overflow-wrap:anywhere}.form-grid input[type=file]{width:100%;max-width:100%;padding:10px;height:auto}.form-grid .check-line{display:flex;align-items:flex-start;gap:10px;line-height:1.5}.form-grid .check-line input{width:18px;height:18px;flex-shrink:0;margin:2px 0}.evidence-versions .document-link{min-width:0}
+
+.brand{font-weight:750;letter-spacing:-1.2px;color:#07532e}.brand-symbol{width:52px;height:40px}.brand-sub{font-size:10px;letter-spacing:3.6px;color:#07532e;margin-top:6px}.public-header .brand-symbol{width:54px;height:42px}@media(max-width:600px){.public-header .brand-symbol{width:44px;height:34px}.public-header .brand-sub{font-size:9px;letter-spacing:3px}}
+
+.evidence-approval[hidden]{display:none}.evidence-approval{margin:0;gap:20px}

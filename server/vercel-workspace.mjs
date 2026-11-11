@@ -3,6 +3,7 @@ import {createPlatform,PlatformError} from './platform.mjs';
 import {getCloudDatabase} from './neon-database.mjs';
 import {authenticateAccount,AuthUnavailableError,publicUser,sameOrigin} from './auth.mjs';
 import {DEFAULT_AUTH_BASE_URL} from './auth-config.mjs';
+import {createHoldingEvidenceHandler} from './holding-evidence.mjs';
 import {createDocumentHandler} from './company-documents.mjs';
 
 const legacyCookieName='__Host-cc-session';
@@ -56,17 +57,19 @@ export function createVercelWorkspaceHandler({database=getCloudDatabase,environm
     }
   };
 }
-export function createVercelDocumentHandler({database=getCloudDatabase,environment=()=>process.env,authenticate=authenticateAccount}={}){
+export function createVercelDocumentHandler({database=getCloudDatabase,environment=()=>process.env,authenticate=authenticateAccount,handlerFactory=createDocumentHandler}={}){
   return async request=>{
     try{
       if(request.method==='POST'&&!sameOrigin(request))return json({error:'Cross-origin requests are not allowed.'},403);
       const auth=await authenticate(request);
-      if(!auth.user)return json({error:'Sign in to access company documents.',signIn:true},401);
+      if(!auth.user)return json({error:'Sign in to access documents.',signIn:true},401);
       if(auth.user.emailVerified!==true)return json({error:'Verify your email first.',signIn:true},403);
       const connection=environment().DATABASE_URL||environment().POSTGRES_URL;
       if(!connection)return json({error:'Cloud workspace is not configured.'},503);
-      const handler=createDocumentHandler({identity:async()=>({...auth,accountId:accountWorkspaceId(auth.issuer,auth.user.id)}),database:()=>database(connection),platformOptions:governanceOptions(environment())});
+      const handler=handlerFactory({identity:async()=>({...auth,accountId:accountWorkspaceId(auth.issuer,auth.user.id)}),database:()=>database(connection),platformOptions:governanceOptions(environment())});
       const response=await handler(request);for(const cookie of auth.headers.getSetCookie())response.headers.append('Set-Cookie',cookie);return response;
-    }catch(error){if(error instanceof PlatformError)return json({error:error.message,...(error.code?{code:error.code}:{})},error.status);return json({error:'Company document unavailable. Please try again shortly.'},503);}
+    }catch(error){if(error instanceof PlatformError)return json({error:error.message,...(error.code?{code:error.code}:{})},error.status);return json({error:'Document unavailable. Please try again shortly.'},503);}
   };
 }
+
+export const createVercelHoldingEvidenceHandler=(options={})=>createVercelDocumentHandler({...options,handlerFactory:createHoldingEvidenceHandler});

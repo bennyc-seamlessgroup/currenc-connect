@@ -3,13 +3,14 @@ import {dirname} from 'node:path';
 import {stripTypeScriptTypes} from 'node:module';
 const domain=stripTypeScriptTypes(await readFile('lib/domain.ts','utf8'));
 const chainLogos=Object.fromEntries(await Promise.all([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(async([chain,file])=>[chain,'data:image/svg+xml;base64,'+(await readFile(`src/assets/chains/${file}.svg`)).toString('base64')])));
-const app='const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8');
+const brandSymbol=await readFile('src/assets/brand/symbol.svg','utf8');
+const app='const brandSymbol='+JSON.stringify(brandSymbol)+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8')+'\n'+await readFile('src/holding-ui.js','utf8');
 const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
  '/styles.css':{type:'text/css; charset=utf-8',body:await readFile('src/styles.css','utf8')},
  '/app.js':{type:'text/javascript; charset=utf-8',body:domain+'\n'+app},
  '/images/shareholder-rewards.png':{type:'image/png',base64:true,body:(await readFile('src/assets/landing/shareholder-rewards.png')).toString('base64')},
- '/favicon.svg':{type:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#101f29"/><g stroke="#d8ec90" stroke-width="3" fill="none" stroke-linecap="round"><path d="M27 12a12 12 0 1 0 0 24 M34 12a12 12 0 1 0 0 24 M17 24h21"/></g></svg>'}
+ '/favicon.svg':{type:'image/svg+xml',body:brandSymbol}
 };
 await rm('dist',{recursive:true,force:true});await mkdir('dist/server',{recursive:true});await mkdir('dist/client',{recursive:true});await mkdir('dist/.openai',{recursive:true});
 // Vercel serves only browser assets from this directory, never the Worker source.

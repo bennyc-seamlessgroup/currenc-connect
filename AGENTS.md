@@ -4,6 +4,9 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11：新增持股文件上載及人工審核，`server/holding-evidence.mjs`／`src/holding-ui.js`／`/api/holding-evidence`／`drizzle/0004_holding_evidence.sql`。PDF/PNG/JPEG 每份最多 2 MB、每項登記最多 10 個不可覆寫版本。只供提交股東及該公司 Owner/Admin/Operator 存取，Viewer／其他公司／只有平台權限者不可讀取；禁止自行審核。公司內部登記文件維持原本 staff-only，不可混用權限。
+- 持股文件支援 Pending → Needs info／Rejected → 新版本重交 → Approved。每次審核須有理由；批准須確認股東名、公司、股數及基準日，批准日期須等於活動 record date 且不能在未來。版本／資格／團隊稽核與公司 revision 原子保存，舊版及角色失效請求不可生效。Pending／Needs info 都會阻止鎖定快照；鎖定後不能修改文件或資格。登記開關只阻止新登記，不阻止既有補件；平台暫停會阻止修改。不要將上載／人工批准當成第三方 KYC 或券商驗證。
+- 已套用使用者確認的松綠／鼠尾草綠雙 C Logo，原生透明 SVG `src/assets/brand/symbol.svg`，全站與 favicon 共用；保留英文 Currenc／CONNECT 字標。不要用整張生成概念展示圖做 Logo。
 - 最新主圖已改為使用者確認、修正握手機手勢後的扁平插畫：股東保留持倉，另外收到降落傘代幣獎勵，以加號表達額外獎勵。不得再用股份直接指向代幣的轉換箭嘴，亦不使用房屋／公司大樓代表持股。現用 `src/assets/landing/shareholder-rewards.png`，1122 × 1402、透明 PNG、沒有文字；保持 alpha、完整 contain，外層不可加底色或改成 JPEG。圖片及生成描述見同目錄 README。
 - Current campaigns 移除搜尋欄及過濾；以橫向卡片列呈現，原生滑動、鍵盤及左右按鈕，只有溢出時顯示按鈕，頭尾停用；不要重新加入搜尋欄。五張合成活動的桌面／390px 原生瀏覽器滑動及末端詳情檢查通過，77 項測試保留通過。卡片版本 `b905f4b` 已在 Vercel Ready；既有正式資料沒有改動。
 - 使用者最新要求移除網站 Sandbox／Preview 展示文字及標籤，並加入新生成主圖及登入前公開活動。不要重新加入全域示範標籤；KYC／持股／錢包／發放的實際功能未變，保留動作內準確說明，不可把模擬說成真實驗證或鏈上交易。

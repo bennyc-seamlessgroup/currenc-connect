@@ -3,6 +3,7 @@ import {mkdir} from 'node:fs/promises';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
 import {createPlatform,PlatformError} from '../server/platform.mjs';
 import {seedState} from '../dist/server/domain.mjs';
+import {createHoldingEvidenceHandler} from '../server/holding-evidence.mjs';
 import {createDocumentHandler} from '../server/company-documents.mjs';
 import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 
@@ -17,6 +18,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
   const platform=createPlatform(DB,platformOptions);
   const identity={accountId:'local-demo',issuer:'local-development',user:{email:'demo@example.com',name:'Local developer',emailVerified:true}};
   const documentHandler=createDocumentHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
+  const holdingHandler=createHoldingEvidenceHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
   const {default:worker} = await import('../dist/server/index.js');
   const server = createServer(async (req,res) => {
     try {
@@ -41,6 +43,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
       });
       let response;
       if(new URL(request.url).pathname==='/api/public-campaigns')response=method==='GET'?Response.json(await readPublicCampaigns(DB),{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):Response.json({error:'Method not allowed'},{status:405,headers:{Allow:'GET'}});
+      else if(new URL(request.url).pathname==='/api/holding-evidence')response=await holdingHandler(request);
       else if(new URL(request.url).pathname==='/api/company-document')response=await documentHandler(request);
       else if(new URL(request.url).pathname==='/api/workspace') {
         if(!['GET','POST'].includes(method))response=Response.json({error:'Method not allowed'},{status:405});

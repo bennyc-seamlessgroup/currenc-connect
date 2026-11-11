@@ -10,7 +10,8 @@ export type Campaign = {
 export type Holder = {
   id: string; campaign: string; name: string; shares: number;
   accountId?: string;
-  status: 'verified' | 'pending' | 'rejected'; allocation: number; claimed: number;
+  status: 'verified' | 'pending' | 'needs_info' | 'rejected'; allocation: number; claimed: number;
+  evidence?: {id:string;version:number};
   chain?: Chain; wallet?: string; source: string; asOf: string;
 };
 export type Entry = { id: string; at: string; title: string; detail: string; kind: 'info' | 'success' | 'warning' };
@@ -122,6 +123,7 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
     case 'review': {
       const h = s.holders.find(h => h.id === cmd.holderId); assert(h, 'Shareholder not found');
       const c = s.campaigns.find(c => c.id === h.campaign)!; assert(c.status === 'open', 'Eligibility cannot change after the snapshot is locked.');
+      assert(!h.evidence, 'Review the current evidence version using the document review form.');
       assert(h.status === 'pending', 'This application has already been reviewed.'); h.status = cmd.approved === true ? 'verified' : 'rejected';
       log('Holdings review updated', `${h.name} · ${h.status === 'verified' ? 'Approved' : 'Rejected'} (demo review)`); break;
     }
@@ -174,7 +176,7 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
       const c = campaign(); assert(c.status === 'open', 'The campaign must be open.'); beforeDeadline(c,true);
       assert(c.snapshotDate <= at.slice(0, 10), 'The record date has not been reached.');
       const rows = s.holders.filter(h => h.campaign === c.id);
-      assert(rows.every(h => h.status !== 'pending'), 'Complete all pending reviews first.');
+      assert(rows.every(h => !['pending','needs_info'].includes(h.status)), 'Complete all pending reviews first.');
       const amounts = allocate(c, rows); rows.forEach(h => h.allocation = amounts.find(r => r.id === h.id)?.amount || 0);
       c.status = 'locked'; c.snapshotAt = at;
       log('Snapshot locked', `${c.name} · ${amounts.length} eligible shareholders · allocations fixed`); break;

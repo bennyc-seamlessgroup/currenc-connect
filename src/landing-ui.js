@@ -1,5 +1,5 @@
 function publicHeader(showSignIn=true) {
- return `<header class="public-header"><a class="brand" href="#" data-action="auth-home" aria-label="Currenc Connect introduction">${logo}<span>currenc<span class="brand-sub">CONNECT</span></span></a><nav aria-label="Public navigation">${showSignIn?`<a class="landing-nav-link" href="#campaigns">Campaigns</a><a class="landing-nav-link" href="#how-it-works">How it works</a>${btn('Sign in','auth-start','secondary')}`:btn('Back to introduction','auth-home','text-btn')}</nav></header>`;
+ return `<header class="public-header"><a class="brand" href="#" data-action="auth-home" aria-label="Currenc Connect introduction">${logo}<span>Currenc<span class="brand-sub">CONNECT</span></span></a><nav aria-label="Public navigation">${showSignIn?`<a class="landing-nav-link" href="#campaigns">Campaigns</a><a class="landing-nav-link" href="#how-it-works">How it works</a>${btn('Sign in','auth-start','secondary')}`:btn('Back to introduction','auth-home','text-btn')}</nav></header>`;
 }
 function publicFooter() {
  return `<footer class="public-footer"><span>© ${new Date().getFullYear()} Currenc Connect</span><span>Shareholder token rewards</span></footer>`;
