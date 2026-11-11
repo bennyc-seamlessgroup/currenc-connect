@@ -4,6 +4,7 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 持股文件／Logo 版本 `ac5acfd` 已在 Vercel Ready（`2etzC4CdKZKzUtqNbT8HUJd54fMi`），87 項測試、建置及檢查通過。獨立 SQLite 合成身份／兩份測試 PDF 已完成上載、補件、批准、錢包銜接及鎖定 120 TEST 配額，沒有資金或轉帳；正式站只做匿名唯讀／登入入口及 390px 檢查，沒有寄 OTP 或改動正式資料。QA 服務已停止，主 localhost:5173 保留運行。
 - 2026-11-11：新增持股文件上載及人工審核，`server/holding-evidence.mjs`／`src/holding-ui.js`／`/api/holding-evidence`／`drizzle/0004_holding_evidence.sql`。PDF/PNG/JPEG 每份最多 2 MB、每項登記最多 10 個不可覆寫版本。只供提交股東及該公司 Owner/Admin/Operator 存取，Viewer／其他公司／只有平台權限者不可讀取；禁止自行審核。公司內部登記文件維持原本 staff-only，不可混用權限。
 - 持股文件支援 Pending → Needs info／Rejected → 新版本重交 → Approved。每次審核須有理由；批准須確認股東名、公司、股數及基準日，批准日期須等於活動 record date 且不能在未來。版本／資格／團隊稽核與公司 revision 原子保存，舊版及角色失效請求不可生效。Pending／Needs info 都會阻止鎖定快照；鎖定後不能修改文件或資格。登記開關只阻止新登記，不阻止既有補件；平台暫停會阻止修改。不要將上載／人工批准當成第三方 KYC 或券商驗證。
 - 已套用使用者確認的松綠／鼠尾草綠雙 C Logo，原生透明 SVG `src/assets/brand/symbol.svg`，全站與 favicon 共用；保留英文 Currenc／CONNECT 字標。不要用整張生成概念展示圖做 Logo。
