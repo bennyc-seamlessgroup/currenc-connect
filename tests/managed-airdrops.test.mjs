@@ -32,6 +32,19 @@ test('CSV: rejects duplicates, invalid addresses, precision loss, malformed rows
  assert.throws(()=>parseRecipientCsv('wallet_address,amount\n'+(addresses[0]+',1\n').repeat(5001),'ethereum',6),/5,000/);
  assert.throws(()=>parseRecipientCsv('wallet_address,amount\n11111111111111111111111111111111,1','solana',9),/non-zero/);
 });
+
+test('CSV: unchanged example rows cannot become recipients',()=>{
+ assert.throws(()=>parseRecipientCsv('wallet_address,amount,reference\n'+addresses[0]+',1,EXAMPLE_REPLACE_ROW_1','ethereum',6),/Replace the sample/);
+});
+
+test('managed airdrop: token source is validated, committed in the manifest and locked after submission',async t=>{
+ const h=await fixture(t);for(const fundingSource of ['unknown',null])await assert.rejects(h.service.create(h.admin,{organizationId:h.org,...info,fundingSource}),/valid token source/);
+ let d=await h.service.create(h.admin,{organizationId:h.org,...info,fundingSource:'company_wallet'});const id=d.campaign.id;assert.equal(d.campaign.fundingSource,'company_wallet');
+ d=await h.service.mutate(h.admin,{action:'update',id,revision:0,...info});assert.equal(d.campaign.fundingSource,'company_wallet');
+ d=await h.service.mutate(h.admin,{action:'import',id,revision:1,csv});d=await h.service.mutate(h.admin,{action:'submit',id,revision:2,confirm:true});
+ const version=(await h.DB.query('SELECT manifest FROM cc_airdrop_versions WHERE airdrop_id=$1',[id]))[0];assert.equal(JSON.parse(version.manifest).fundingSource,'company_wallet');
+ await assert.rejects(h.service.mutate(h.admin,{action:'update',id,revision:3,...info,fundingSource:'custody'}),/locked/);assert.equal(d.execution.connected,false);
+});
 test('managed airdrop: company upload, locked manifest, staff review, retained versions and no simulated payouts',async t=>{
  const h=await fixture(t),d=await h.imported(),id=d.campaign.id;assert.equal(d.campaign.total,'100.000002');assert.equal((await h.platform.read(h.admin,{view:'shareholder'})).state.profile.kyc,false);
  assert.equal((await h.DB.query('SELECT * FROM cc_verified_wallets')).length,0);

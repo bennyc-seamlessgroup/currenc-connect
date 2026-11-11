@@ -8,7 +8,8 @@ const staff=p=>`EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=${p}) 
 const member=(org,p,roles)=>`EXISTS (SELECT 1 FROM cc_memberships WHERE organization_id=${org} AND account_id=${p} AND role IN (${roles.map(r=>`'${r}'`).join(',')})) AND ${enabled(p)}`;
 const managers=['owner','admin','operator'],administrators=['owner','admin'];
 const text=(v,label,max=120)=>{requireValue(typeof v==='string'&&v.trim()&&v.trim().length<=max,`Enter ${label} (${max} characters maximum).`);return v.trim();};
-function distributionInfo(input){
+function distributionInfo(input,previous={}){
+ const fundingSource=input.fundingSource===undefined?(previous.fundingSource||'custody'):input.fundingSource;requireValue(['custody','company_wallet'].includes(fundingSource),'Select a valid token source.');
  const name=text(input.name,'a campaign name',70),purpose=text(input.purpose,'the distribution purpose',400),network=input.network;
  const config=AIRDROP_NETWORKS[network];requireValue(config,'Select a network.');
  const tokenAddress=airdropAddress(input.tokenAddress,network),symbol=text(input.symbol,'a token symbol',12);
@@ -16,7 +17,7 @@ function distributionInfo(input){
  const decimals=Number(input.decimals);requireValue(Number.isInteger(decimals)&&decimals>=0&&decimals<=config.decimals,'Check the token decimal places.');
  const scheduledAt=text(input.scheduledAt,'a requested release time',24);
  requireValue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:00)?Z$/.test(scheduledAt)&&Number.isFinite(Date.parse(scheduledAt))&&new Date(scheduledAt).toISOString().slice(0,16)===scheduledAt.slice(0,16),'Enter a valid UTC release time.');
- return {name,purpose,network,tokenAddress,symbol,decimals,scheduledAt};
+ return {name,purpose,network,tokenAddress,symbol,decimals,scheduledAt,fundingSource};
 }
 const summaryData=({recipients,...data})=>({...data,recipientCount:recipients.length});
 function summary(row){const data=row.summary?JSON.parse(row.summary):summaryData(JSON.parse(row.data));return {id:row.id,organizationId:row.organization_id,company:row.company?JSON.parse(row.company).name:undefined,status:row.status,revision:row.revision,version:row.version,manifestHash:row.manifest_hash,reviewNote:row.review_note,createdAt:row.created_at,updatedAt:row.updated_at,...data};}
@@ -72,7 +73,7 @@ export function createManagedAirdrops(DB,platform,{now=()=>new Date()}={}){
   requireValue(job,'Select an airdrop.');if(review)requireValue(input.revision===job.revision,'This airdrop changed. Reload before reviewing.',409);
   let data=JSON.parse(job.data),next={data,status:job.status,hash:job.manifest_hash};const editable=['draft','changes_requested'].includes(job.status);
   if(action==='update'){
-   requireValue(editable,'Submitted airdrops are locked. Request changes before editing.',409);const info=distributionInfo(input);
+   requireValue(editable,'Submitted airdrops are locked. Request changes before editing.',409);const info=distributionInfo(input,data);
    requireValue(!data.recipients.length||['network','tokenAddress','decimals'].every(k=>info[k]===data[k]),'Clear the recipient list before changing its network, token address or decimals.');next.data={...data,...info};next.hash=null;
   }else if(action==='import'){
    requireValue(editable,'Submitted recipient lists are locked.',409);

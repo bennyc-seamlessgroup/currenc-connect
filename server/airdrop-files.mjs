@@ -48,6 +48,7 @@ export function parseRecipientCsv(csv,network,decimals,defaultAmount){
    requireValue(!seen.has(key),'Duplicate wallet address. Combine amounts into one row.');seen.add(key);
    const units=tokenUnits(perRow?r[1].trim():defaultAmount,decimals);total+=units;requireValue(total<2n**256n,'The total token amount is too large.');
    const reference=(r[perRow?2:1]||'').trim();requireValue(reference.length<=100&&!/[\r\n\x00-\x1f]/.test(reference),'Keep reference to 100 characters on one line.');
+   requireValue(!/^EXAMPLE_REPLACE_ROW_\d+$/.test(reference),'Replace the sample addresses, amounts and references before importing your list.');
    return {address,amount:formatUnits(units,decimals),units:units.toString(),reference};
   }catch(error){error.message=`CSV row ${index+2}: ${error.message}`;throw error;}
  });

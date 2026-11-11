@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {stripTypeScriptTypes} from 'node:module';
 import vm from 'node:vm';
+import {readUI,localeSource} from '../scripts/ui-source.mjs';
 import {seedState,applyCommand} from '../lib/domain.ts';
 import {createPlatform} from '../server/platform.mjs';
 import {createSqliteDatabase} from '../server/sqlite-database.mjs';
@@ -14,10 +15,11 @@ import {createManagedAirdrops} from '../server/managed-airdrops.mjs';
 import {createTestnet} from '../server/testnet.mjs';
 const domain=stripTypeScriptTypes(readFileSync('lib/domain.ts','utf8')).replace(/^export /gm,'');
 const chainLogos=Object.fromEntries([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(([chain,file])=>[chain,'data:image/svg+xml;base64,'+readFileSync(`src/assets/chains/${file}.svg`).toString('base64')]));
-const app='const brandSymbol='+JSON.stringify(readFileSync('src/assets/brand/symbol.svg','utf8'))+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+readFileSync('src/app.js','utf8').replace(/^import[^\n]+\n/,'')+'\n'+readFileSync('src/governance-ui.js','utf8')+'\n'+readFileSync('src/campaign-ui.js','utf8')+'\n'+readFileSync('src/portal-ui.js','utf8')+'\n'+readFileSync('src/landing-ui.js','utf8')+'\n'+readFileSync('src/holding-ui.js','utf8')+'\n'+readFileSync('src/wallet-ui.js','utf8')+'\n'+readFileSync('src/testnet-ui.js','utf8')+'\n'+readFileSync('src/managed-airdrop-ui.js','utf8');
-function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null,walletService=null,testnetService=null,managedService=null}={}){
+const translations=JSON.parse(readFileSync('src/locales/zh-Hant.json','utf8'));
+const app=localeSource()+'\nconst brandSymbol='+JSON.stringify(readFileSync('src/assets/brand/symbol.svg','utf8'))+';\nconst chainLogoData='+JSON.stringify(chainLogos)+';\n'+readUI(translations);
+function harness({requiresLogin=false,platform=null,actor=null,search='',publicRows=[],publicDatabase=null,walletService=null,testnetService=null,managedService=null,language='en'}={}){
  let signedIn=!requiresLogin;
- let stored=seedState();const nodes={};const handlers={};const storage=new Map();
+ let stored=seedState();const nodes={};const handlers={};const storage=new Map([['cc-language',language]]);
  const node=(id)=>nodes[id] ||= {innerHTML:'',className:'',open:false,value:'',dataset:{},addEventListener(){},classList:{add(){},remove(){}},showModal(){this.open=true;},close(){this.open=false;},focus(){},setSelectionRange(){}};
  const context=vm.createContext({console,crypto,structuredClone,setTimeout:()=>1,clearTimeout(){},Blob,URL,URLSearchParams,
   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
@@ -47,7 +49,7 @@ function harness({requiresLogin=false,platform=null,actor=null,search='',publicR
 }
 test('UI: navigates all company pages, shareholder pages and settings without render errors',async()=>{
  const h=harness();await h.start();assert.match(h.nodes['#app'].innerHTML,/Overview/);
- for(const page of ['campaigns','shareholders','treasury','reports','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Currenc Connect'));assert.doesNotMatch(h.nodes['#app'].innerHTML,/sandbox/i);assert.doesNotMatch(h.nodes['#app'].innerHTML, /[\u3400-\u9fff]/);}
+ for(const page of ['campaigns','shareholders','treasury','reports','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.includes('Currenc Connect'));assert.doesNotMatch(h.nodes['#app'].innerHTML,/sandbox/i);assert.doesNotMatch(h.nodes['#app'].innerHTML.replaceAll('繁體中文',''), /[\u3400-\u9fff]/);}
  await h.click('mode',{mode:'shareholder'});assert.match(h.nodes['#app'].innerHTML,/Companies/);
  for(const page of ['rewards','profile','settings']){await h.click('nav',{page});assert.ok(h.nodes['#app'].innerHTML.length>3000);}
 });
@@ -347,6 +349,7 @@ test('UI: closing the wallet connection dialog ignores late provider results',as
 
 async function testnetUiFixture(t,{delayed=false}={}){
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const actor=platformActor('testnet-ui-owner'),platform=createPlatform(DB),selection=await staffCompany(DB,platform,actor,'Private test company'),wallets=createWallets(DB,platform),signer=testSigner(),identity={...actor,sessionHash:'testnet-ui-session-binding'};
+ await DB.query("INSERT INTO cc_platform_admins (account_id,role,created_at) VALUES ($1,'admin',$2)",[actor.accountId,new Date().toISOString()]);
  const challenge=await wallets.challenge(identity,'https://test.local',{chain:'ETH',address:signer.address}),verified=await wallets.verify(identity,'https://test.local',{challengeId:challenge.id,signature:await signer.sign(challenge.message)}),service=createTestnet(DB,platform,{client:{getChainId:async()=>11155111}}),pilot=await service.pilot(actor,{organizationId:selection.organizationId,name:'Pilot <img src=x>',amount:100,walletId:verified.id,walletRevision:0,testDataConsent:true});
  let resolve,sendCount=0,recorded=[],statusOverride;
  const fake={status:(actor,input)=>statusOverride||service.status(actor,input),prepare:async(actor,input)=>{const tx=await service.prepare(actor,input);return delayed?new Promise(r=>resolve=()=>r(tx)):tx;},submit:async(_actor,input)=>{recorded.push(input.hash);return{};}};
@@ -354,7 +357,7 @@ async function testnetUiFixture(t,{delayed=false}={}){
  await h.start(selection);return {...h,pilot,verified,DB,get sends(){return sendCount;},get recorded(){return recorded;},get resolve(){return resolve;},setStatus(value){statusOverride=value;}};
 }
 test('UI: testnet transactions require a separate confirmation and show amount, wallet and network before sending',async t=>{
- const h=await testnetUiFixture(t);await h.click('nav',{page:'campaigns'});assert.match(h.nodes['#app'].innerHTML,/New testnet pilot/);
+ const h=await testnetUiFixture(t);await h.click('nav',{page:'campaigns'});assert.doesNotMatch(h.nodes['#app'].innerHTML,/New testnet pilot|testnet-pilot/);await h.click('nav',{page:'settings'});assert.match(h.nodes['#app'].innerHTML,/Internal test tools/);assert.match(h.nodes['#app'].innerHTML,/Create Sepolia test/);
  await h.click('testnet-prepare-deploy',{id:h.pilot.campaignId});await h.submit('testnet-prepare-form',{walletId:h.verified.id},{id:h.pilot.campaignId,kind:'deploy'});assert.equal(h.sends,0);assert.match(h.nodes['#dialog'].innerHTML,/QA &lt;img/);
  await h.click('testnet-connect',{provider:'qa'});const preview=h.nodes['#dialog'].innerHTML;assert.match(preview,/Maximum test supply/);assert.match(preview,/100 TEST/);assert.match(preview,/Ethereum Sepolia/);assert.match(preview,/Pilot &lt;img/);assert.equal(h.sends,0);
  await h.click('testnet-send');assert.equal(h.sends,1);assert.equal(h.recorded.length,1);
@@ -385,4 +388,17 @@ test('UI: wallet list setup guides managers through exact review and submission 
 test('UI: closing a pending managed-airdrop request prevents private results from reopening',async t=>{
  const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('managed-late'),platform=createPlatform(DB),selected=await staffCompany(DB,platform,root);let resolve;
  const managedService={detail:()=>new Promise(r=>resolve=r)},h=harness({platform,actor:root,managedService});await h.start(selected);const pending=h.click('managed-open',{id:'pending'});while(!resolve)await Promise.resolve();await h.click('close');resolve({campaign:{name:'Late private campaign'}});await pending;assert.equal(h.nodes['#dialog'].open,false);
+});
+
+test('UI: Traditional Chinese switches without changing company data, then returns to English',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const actor=platformActor('language-admin'),platform=createPlatform(DB),selected=await staffCompany(DB,platform,actor,'Campaigns'),h=harness({platform,actor,language:'zh-Hant',managedService:createManagedAirdrops(DB,platform)});
+ await h.start(selected);assert.match(h.nodes['#app'].innerHTML,/總覽/);assert.match(h.nodes['#app'].innerHTML,/>Campaigns<\/option>/);await h.click('nav',{page:'campaigns'});assert.match(h.nodes['#app'].innerHTML,/錢包名單空投/);assert.match(h.nodes['#app'].innerHTML,/股東獎勵/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/New testnet pilot/);
+ await h.click('create');assert.match(h.nodes['#dialog'].innerHTML,/錢包名單空投/);await h.click('managed-new');assert.match(h.nodes['#dialog'].innerHTML,/代幣來源/);assert.match(h.nodes['#dialog'].innerHTML,/value="custody"[^>]*>平台代管/);assert.match(h.nodes['#dialog'].innerHTML,/value="company_wallet"[^>]*>公司自有錢包/);
+ await h.submit('managed-info-form',{name:'New campaign',purpose:'Do not translate this description.',network:'ethereum',fundingSource:'company_wallet',tokenAddress:'0x3333333333333333333333333333333333333333',symbol:'Open',decimals:'6',scheduledAt:new Date(Date.now()+7*86400000).toISOString().slice(0,16)});
+ assert.match(h.nodes['#dialog'].innerHTML,/<h2>New campaign<\/h2>/);assert.match(h.nodes['#dialog'].innerHTML,/Do not translate this description\./);assert.match(h.nodes['#dialog'].innerHTML,/公司自有錢包/);const record=(await platform.read(actor,selected)).managed.campaigns[0];assert.equal(record.name,'New campaign');assert.equal(record.symbol,'Open');assert.equal(record.fundingSource,'company_wallet');
+ await h.click('close');vm.runInContext("setLanguage('en')",h.context);assert.match(h.nodes['#app'].innerHTML,/>Campaigns<\/h1>/);assert.match(h.nodes['#app'].innerHTML,/Wallet list airdrops/);assert.equal(vm.runInContext("localStorage.getItem('cc-language')",h.context),'en');
+});
+
+test('UI: Chinese sign-in preserves email identity and language is selectable before login',async()=>{
+ const h=harness({requiresLogin:true,language:'zh-Hant'});await h.start();assert.match(h.nodes['#app'].innerHTML,/真實持股/);assert.match(h.nodes['#app'].innerHTML,/data-language-switch/);await h.click('auth-start');assert.match(h.nodes['#app'].innerHTML,/電郵地址/);await h.submit('login-email-form',{email:'language@example.test'});assert.match(h.nodes['#app'].innerHTML,/language@example.test/);assert.match(h.nodes['#app'].innerHTML,/驗證碼/);assert.match(h.nodes['#app'].innerHTML,/id="login-code" name="code"/);
 });

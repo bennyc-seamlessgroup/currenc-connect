@@ -13,6 +13,11 @@ import {readPublicCampaigns} from '../server/public-campaigns.mjs';
 const origin='https://testnet.example.test',issuer='testnet-qa';
 const actor=id=>({accountId:'testnet-'+id,issuer,sessionHash:'isolated-testnet-session-'+id,user:{id,name:id,email:id+'@example.test',emailVerified:true}}),root=actor('root'),other=actor('other');
 const rejected=(promise,status)=>assert.rejects(promise,e=>e instanceof PlatformError&&e.status===status);
+
+test('new Sepolia test activities are restricted to internal platform staff',async t=>{
+ const h=await harness(t);await h.platform.read(other);await h.platform.execute(root,{type:'platform-company-admin',organizationId:h.pilot.organizationId,memberEmail:other.user.email,role:'admin'});
+ await assert.rejects(h.service.pilot(other,{organizationId:h.pilot.organizationId,name:'Not an internal test',amount:1,testDataConsent:true}),e=>e.status===403&&/Platform administrator/.test(e.message));
+});
 async function harness(t){
  const network=await hre.network.connect({network:'hardhatMainnet'}),provider=network.provider,client=createPublicClient({chain:sepolia,transport:custom(provider)}),wallet=createWalletClient({chain:sepolia,transport:custom(provider)}),accounts=await wallet.getAddresses();
  const DB=createSqliteDatabase(':memory:');t.after(async()=>{DB.close();await network.close();});

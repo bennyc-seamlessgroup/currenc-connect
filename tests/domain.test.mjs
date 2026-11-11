@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {seedState,applyCommand,allocate,claimable} from '../lib/domain.ts';
 const campaignId='curr-welcome';
+
+test('campaign funding preference is draft-only and does not change the simulation ledger',()=>{
+ const s=seedState(),today=new Date().toISOString().slice(0,10),deadline=new Date(Date.now()+30*86400000).toISOString().slice(0,10),input={company:'curr',name:'Funding plan',description:'Company wallet plan',mode:'ratio',ratio:0.1,budget:1000,minimum:1,cap:100,release:100,chains:['ETH'],snapshotDate:today,registrationDeadline:deadline,claimDeadline:deadline,distribution:'claim',fundingSource:'company_wallet'};
+ const created=applyCommand(s,{type:'create',input}),c=created.campaigns[0];assert.equal(c.fundingSource,'company_wallet');assert.deepEqual(created.treasury,s.treasury);assert.equal(created.transactions.length,s.transactions.length);
+ assert.throws(()=>applyCommand(s,{type:'create',input:{...input,fundingSource:'invalid'}}),/valid token source/);
+ assert.throws(()=>applyCommand(s,{type:'create',input:{...input,fundingSource:null}}),/valid token source/);
+ const {fundingSource,...legacy}=input,edited=applyCommand(created,{type:'edit-campaign',campaignId:c.id,campaignRevision:c.revision||0,input:legacy});assert.equal(edited.campaigns[0].fundingSource,'company_wallet');
+ const opened=applyCommand(created,{type:'open',campaignId:c.id});assert.throws(()=>applyCommand(opened,{type:'edit-campaign',campaignId:c.id,campaignRevision:opened.campaigns[0].revision||0,input:{fundingSource:'custody'}}),/Published reward rules/);
+});
 const run=(s,type,extra={})=>applyCommand(s,{type,campaignId,...extra});
 function investor(s=seedState(),source='broker'){
  s=run(s,'kyc',{name:'Demo Investor',email:'demo@example.com',country:'Hong Kong',consent:true});

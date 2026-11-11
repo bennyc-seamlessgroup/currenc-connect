@@ -2,10 +2,10 @@ let helpTipId=0;
 function infoTip(title,text){const id='help-tip-'+(++helpTipId);return `<span class="help-tip"><button type="button" class="info-button" data-action="show-info" data-title="${esc(title)}" data-description="${esc(text)}" aria-label="About ${esc(title)}" aria-describedby="${id}">${icon('info')}</button><span id="${id}" class="help-popover" role="tooltip">${esc(text)}</span></span>`;}
 function shareholderIntroduction(){return `<section class="shareholder-intro"><h2>Rewards for the companies you hold.</h2><p>Currenc Connect brings company token rewards to shareholders. Find a participating company, register your holdings and track your allocation in one place.</p><ol class="shareholder-steps"><li><span>1</span>Choose a company</li><li><span>2</span>Add your profile &amp; holdings</li><li><span>3</span>Add a wallet &amp; claim rewards</li></ol></section>`;}
 function accountInvitationLink(i){const link=new URL('/',window.location?.href||'http://localhost:5173');link.searchParams.set('email',i.email);link.searchParams.set('accountInvitation',i.id);return link.toString();}
-function portalAccountStatus(status){return {active:'Active',suspended:'Disabled',removed:'Disabled'}[status]||status;}
+function portalAccountStatus(status){return tr(({active:'Active',suspended:'Disabled',removed:'Disabled'}[status]||status));}
 function accountRoleSummary(a){
  const companies=(a.companyRoles||[]).length;
- return `<span>${a.platform_role?`Platform ${esc(a.platform_role)}`:'Shareholder'}</span>${companies?`<small>${companies} company ${companies===1?'role':'roles'}</small>`:''}`;
+ return `<span>${a.platform_role?`Platform ${esc(tr(a.platform_role))}`:'Shareholder'}</span>${companies?`<small>${companies} company ${tr(companies===1?'role':'roles')}</small>`:''}`;
 }
 function accountAccessDialog(a){
  const disabled=a.status!=='active',profile=a.identityProfile,mine=a.email.toLowerCase()===currentUser?.email?.toLowerCase(),owner=access.platformRole==='owner';

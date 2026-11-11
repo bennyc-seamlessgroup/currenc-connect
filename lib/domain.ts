@@ -6,6 +6,7 @@ export type Campaign = {
   release: number; chains: Chain[]; snapshotDate: string; deadline: string;
   distribution: 'claim' | 'push'; snapshotAt?: string;
   delivery?: 'simulation' | 'sepolia';
+  fundingSource?: 'custody' | 'company_wallet';
   testOnly?: boolean;
   registrationDeadline?: string; claimDeadline?: string; revision?: number; archivedAt?: string; deletedAt?: string;
 };
@@ -86,12 +87,13 @@ function campaignSettings(input: Record<string, any>, companies: Company[], toda
   assert(input.mode === 'ratio' || input.mode === 'pool', 'Invalid allocation method');
   assert(input.distribution === 'claim' || input.distribution === 'push', 'Invalid distribution method');
   assert(Array.isArray(input.chains) && input.chains.length > 0 && input.chains.every((c: string) => ['ETH','SOL','BNB'].includes(c)), 'Select at least one supported network.');
+  const fundingSource=input.fundingSource===undefined?'custody':input.fundingSource;assert(['custody','company_wallet'].includes(fundingSource),'Select a valid token source.');
   const delivery=input.delivery||'simulation';
   assert(['simulation','sepolia'].includes(delivery),'Select a supported delivery environment.');
   if(delivery==='sepolia')assert(input.chains.length===1&&input.chains[0]==='ETH'&&input.distribution==='claim'&&Number(input.release)===100,'Sepolia campaigns use Ethereum, shareholder claims and 100% unlock.');
   const snapshotDate = dateValue(input.snapshotDate), registrationDeadline = dateValue(input.registrationDeadline || input.deadline), claimDeadline = dateValue(input.claimDeadline || input.deadline || registrationDeadline);
   assert(registrationDeadline >= snapshotDate && registrationDeadline >= today && claimDeadline >= registrationDeadline, 'Registration must end on or after the record date and today; claims must end on or after registration.');
-  return {delivery:delivery as Campaign['delivery'],company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
+  return {fundingSource:fundingSource as Campaign['fundingSource'],delivery:delivery as Campaign['delivery'],company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
 }
 export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile'];walletVerification?:{walletId:string;proofId:string;verifiedAt:string;chain:Chain;address:string}}): State {
   assert(raw && typeof raw === 'object', 'Invalid command');
@@ -157,8 +159,8 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
       if(c.status === 'draft'){
         assert(!s.holders.some(h => h.campaign === c.id) && !s.transactions.some(t => t.campaign === c.id), 'A draft with registration or distribution records cannot change its rules.');
         assert(input.company === c.company, 'A campaign cannot move to another company.');
-        assert(Object.keys(input).every(k => ['company','name','description','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','delivery'].includes(k)), 'Unsupported campaign setting.');
-        Object.assign(c, campaignSettings(input, companies, at.slice(0,10)));
+        assert(Object.keys(input).every(k => ['company','name','description','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','delivery','fundingSource'].includes(k)), 'Unsupported campaign setting.');
+        Object.assign(c, campaignSettings({...input,fundingSource:input.fundingSource===undefined?c.fundingSource:input.fundingSource}, companies, at.slice(0,10)));
       }else{
         const allowed = c.status === 'open' ? ['name','description','registrationDeadline','claimDeadline'] : ['description'];
         assert(['open','locked','paused'].includes(c.status) && Object.keys(input).every(k => allowed.includes(k)), 'Published reward rules are locked. Create a new campaign to change them.');
