@@ -12,6 +12,7 @@ export function createSqliteDatabase(path) {
   db.exec(readFileSync(new URL('../drizzle/0004_holding_evidence.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../drizzle/0005_wallets.sql',import.meta.url),'utf8'));
   db.exec(readFileSync(new URL('../drizzle/0006_testnet.sql',import.meta.url),'utf8'));
+  db.exec(readFileSync(new URL('../drizzle/0007_managed_airdrops.sql',import.meta.url),'utf8'));
   const execute=(sql,values=[])=>{
     const args=[];
     const statement=db.prepare(sql.replace(/\$(\d+)/g,(_,index)=>{args.push(values[Number(index)-1]);return '?';}));

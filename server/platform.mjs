@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {applyCommand,COMPANIES,claimable} from '../dist/server/domain.mjs';
 import {PlatformError,requireValue} from './errors.mjs';
 import {readVerifiedWallets,attachWalletControl,walletForBinding} from './wallets.mjs';
+import {readManagedOverview} from './managed-airdrops.mjs';
 import {testnetSummaries} from './testnet-state.mjs';
 import {createGovernance,validateCompanyInfo} from './governance.mjs';
 
@@ -72,12 +73,14 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
     return row;
   }
   async function pendingInvitations(email) {
-    return (await query("SELECT i.id,i.role,i.expires_at,o.company,a.email AS inviter FROM cc_invitations i JOIN cc_organizations o ON o.id=i.organization_id JOIN cc_accounts a ON a.id=i.invited_by WHERE i.email=$1 AND i.status='pending' AND i.expires_at>$2 ORDER BY i.created_at",[email.toLowerCase(),at()])).map(({company,...row})=>({...row,company:JSON.parse(company).name}));
+    return (await query("SELECT i.id,i.role,i.expires_at,o.company,CASE WHEN EXISTS (SELECT 1 FROM cc_internal_accounts ia WHERE ia.account_id=a.id) OR EXISTS (SELECT 1 FROM cc_platform_admins pa WHERE pa.account_id=a.id) THEN 'Platform team' ELSE a.email END AS inviter FROM cc_invitations i JOIN cc_organizations o ON o.id=i.organization_id JOIN cc_accounts a ON a.id=i.invited_by WHERE i.email=$1 AND i.status='pending' AND i.expires_at>$2 ORDER BY i.created_at",[email.toLowerCase(),at()])).map(({company,...row})=>({...row,company:JSON.parse(company).name}));
   }
-  async function team(organizationId) {
-    return {members:await query('SELECT m.account_id AS id,m.role,a.email,a.name FROM cc_memberships m JOIN cc_accounts a ON a.id=m.account_id WHERE m.organization_id=$1 ORDER BY m.created_at,m.account_id',[organizationId]),
-      invitations:await query("SELECT id,email,role,expires_at FROM cc_invitations WHERE organization_id=$1 AND status='pending' AND expires_at>$2 ORDER BY created_at",[organizationId,at()]),
-      audit:await query('SELECT t.action,t.detail,t.created_at,a.email AS actor FROM cc_team_audit t JOIN cc_accounts a ON a.id=t.actor_id WHERE t.organization_id=$1 ORDER BY t.created_at DESC LIMIT 30',[organizationId])};
+  async function internalPeople(){return query('SELECT a.id,a.email,a.name FROM cc_accounts a WHERE EXISTS (SELECT 1 FROM cc_internal_accounts i WHERE i.account_id=a.id) OR EXISTS (SELECT 1 FROM cc_platform_admins p WHERE p.account_id=a.id)');}
+  function redactInternal(value,people){return people.flatMap(p=>[p.email,p.id,p.name]).filter(v=>v&&v.length>=3).sort((a,b)=>b.length-a.length).reduce((result,v)=>result.replace(new RegExp(v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),'Platform team'),String(value||''));}
+  async function team(organizationId,people) {
+    return {members:await query('SELECT m.account_id AS id,m.role,a.email,a.name FROM cc_memberships m JOIN cc_accounts a ON a.id=m.account_id WHERE m.organization_id=$1 AND NOT EXISTS (SELECT 1 FROM cc_internal_accounts i WHERE i.account_id=a.id) AND NOT EXISTS (SELECT 1 FROM cc_platform_admins p WHERE p.account_id=a.id) ORDER BY m.created_at,m.account_id',[organizationId]),
+      invitations:await query("SELECT id,email,role,expires_at FROM cc_invitations WHERE organization_id=$1 AND NOT EXISTS (SELECT 1 FROM cc_accounts a WHERE a.email=cc_invitations.email AND (EXISTS (SELECT 1 FROM cc_internal_accounts i WHERE i.account_id=a.id) OR EXISTS (SELECT 1 FROM cc_platform_admins p WHERE p.account_id=a.id))) AND status='pending' AND expires_at>$2 ORDER BY created_at",[organizationId,at()]),
+      audit:(await query('SELECT t.action,t.detail,t.created_at,a.email AS actor FROM cc_team_audit t JOIN cc_accounts a ON a.id=t.actor_id WHERE t.organization_id=$1 ORDER BY t.created_at DESC LIMIT 30',[organizationId])).map(a=>({...a,actor:redactInternal(a.actor,people),detail:redactInternal(a.detail,people)}))};
   }
   async function read(identity,selection={}) {
     const account=await ensureAccount(identity);
@@ -86,10 +89,10 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
     requireValue(['company','shareholder','platform'].includes(mode),'Unknown workspace view.',400);
     let state=emptyState(JSON.parse(account.profile));
     let context={mode,organizationId:null,role:'shareholder',permissions:permissions('shareholder')};
-    let revision=account.revision,teamData=null,companyApplication=null,platformData=null;
+    let revision=account.revision,teamData=null,companyApplication=null,platformData=null,managed=null;
     const portal=await governance.settings(),platformRole=await governance.platformRole(identity.accountId);
     if(mode==='platform'){
-      platformData=await governance.platformRead(identity,selection);
+      platformData=await governance.platformRead(identity,selection);managed=await readManagedOverview(DB);
       context={mode,organizationId:null,role:platformRole,permissions:{platform:true,platformOwner:platformRole==='owner'}};
     }
     else if(mode==='company') {
@@ -104,7 +107,10 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       const controls=await query('SELECT campaign_id,visible,paused FROM cc_campaign_controls WHERE organization_id=$1',[id]);
       state.campaigns=state.campaigns.map(c=>({...c,platform:{companyStatus:approval.status,listed:approval.visible===1,...(controls.find(p=>p.campaign_id===c.id)||{visible:1,paused:0})}}));
       revision=row.revision;
-      if(context.permissions.team)teamData=await team(id);
+      const people=await internalPeople();
+      state.activity=state.activity.map(a=>({...a,actor:redactInternal(a.actor,people),title:redactInternal(a.title,people),detail:redactInternal(a.detail,people)}));
+      if(context.permissions.team)teamData=await team(id,people);
+      managed=await readManagedOverview(DB,id);
     }else {
       const all=await query('SELECT o.id,o.company,o.data,s.status AS approval_status,s.visible FROM cc_organizations o JOIN cc_company_status s ON s.organization_id=o.id ORDER BY o.created_at,o.id');
       const controls=await query('SELECT organization_id,campaign_id,visible,paused FROM cc_campaign_controls');
@@ -121,7 +127,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       state.activity=JSON.parse(account.activity);
     }
     if(state.campaigns.some(c=>c.delivery==='sepolia'))state.campaigns=await testnetSummaries(DB,state.campaigns);
-    return {state,wallets:await readVerifiedWallets(DB,identity.accountId),revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
+    return {state,managed,wallets:await readVerifiedWallets(DB,identity.accountId),revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
   }
   async function createOrganization(identity,cmd) {
     await governance.requireAdmin(identity);

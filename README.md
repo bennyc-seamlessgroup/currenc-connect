@@ -49,9 +49,29 @@ Open **Company → Team → Invite member**, enter an email and role, then use *
 
 Only published campaign settings appear in the shareholder directory. Company treasury, review queues, team details and other investors' records are excluded from shareholder responses. All write permissions are enforced server-side; changing a browser view or supplying another account/holder ID does not grant permission.
 
+## Wallet list airdrops and custody setup
+
+**Company → Campaigns → New campaign** offers **Wallet list airdrop** or the existing **Shareholder rewards** flow. The setup guide and campaign progress steps show the next action; form explanations are available through the information buttons.
+
+For a wallet list airdrop:
+
+1. Enter the campaign name, distribution purpose, existing token contract/mint, symbol, decimals, one network and requested release time in UTC.
+2. Upload a UTF-8 CSV (maximum 1 MB / 5,000 wallets). Use `wallet_address,amount,reference`; `reference` is optional. Alternatively upload `wallet_address` (with optional `reference`) and enter **Amount per wallet**. If the CSV contains an amount column, every row must specify its own amount. Download template provides the per-row format.
+3. Review the normalized addresses and exact token amounts. Invalid addresses, duplicate destinations, zero/negative amounts, scientific notation and excessive precision are rejected as a complete file; no partial import is saved. Import replaces the draft list. Clear the list before changing the network, token or decimals.
+4. A company Owner/Admin chooses **Review & submit** and confirms authority and the destinations. Submission creates an immutable version and SHA-256 digest of the company, token, instructions and complete recipient list. Operators can prepare information and lists; Viewers can inspect permitted company records.
+5. The platform team reviews it under **Platform console → Custody & releases**, then requests changes or approves the plan. Requested changes allow the company to revise and resubmit a new version. Earlier versions and audits remain intact. Submitted/approved lists cannot be edited; cancellation stops the request, and eligible records can be archived.
+
+Recipients in this flow do **not** need KYC, a portal account, wallet connection or an ownership signature. Uploaded addresses are destination instructions from the company, not verified wallet ownership. Manager authentication and company permissions remain mandatory. These airdrops are private company records and never appear in public campaigns or shareholder discovery. They do not create shareholder registrations, claimable balances or simulation transactions.
+
+**Custody & releases** also stores public custody-wallet configurations and company token-to-wallet assignments. Ethereum, BNB and Solana network identifiers are explicit, including separate test networks. Company views receive only their assigned token routes; a common master address never creates a balance for every company. Ordinary workspace responses contain campaign summaries, not recipient lists. Authorized detail responses paginate recipients in pages of 100.
+
+**Current boundary:** custody signing, deposit verification, company-attributed balances/reservations and real token releases are not connected. The user will create the custody wallet next. A public address or approved plan does not verify funding, connect a signer or move tokens. Balances stay **Not reconciled**, released amounts stay zero, and the release action stays disabled. Do not send tokens until the selected custody provider, wallet and reconciliation/signing integration are completed. No private keys or seed phrases are collected or stored. Existing simulation balances and the separate Sepolia pilot are unchanged.
+
+Company **Team**, pending invitation attribution and company activity now omit platform-internal account identities and use **Platform team** where attribution is needed. Actual memberships, protected ownership and detailed internal platform audits are preserved. Platform-role grants maintain a persistent internal-account marker so historical staff identities do not reappear after a role is revoked.
+
 ## Platform console and company management
 
-Platform administrators are separate from company owners/admins. The **Platform console** contains Companies, Accounts, Portal settings and Audit log. There is no company submission or review queue.
+Platform administrators are separate from company owners/admins. The **Platform console** contains Companies, Accounts, Custody & releases, Portal settings and Audit log. Company registration is staff-managed; the distribution review queue is separate from company registration.
 
 1. Open **Companies → Add company** and enter its name, ticker and test token symbol.
 2. Enter or edit legal, registration, jurisdiction, website, address and contact information; press **Save company information**. Additional registration details are optional and can be completed by the team over time. Supplied website/email fields are validated.

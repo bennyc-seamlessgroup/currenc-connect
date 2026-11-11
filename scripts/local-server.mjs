@@ -5,6 +5,7 @@ import {createPlatform,PlatformError} from '../server/platform.mjs';
 import {seedState} from '../dist/server/domain.mjs';
 import {createHoldingEvidenceHandler} from '../server/holding-evidence.mjs';
 import {createWalletHandler} from '../server/wallets.mjs';
+import {createManagedAirdropHandler} from '../server/managed-airdrops.mjs';
 import {createTestnetHandler} from '../server/testnet.mjs';
 import {createDocumentHandler} from '../server/company-documents.mjs';
 import {readPublicCampaigns} from '../server/public-campaigns.mjs';
@@ -22,6 +23,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
   const documentHandler=createDocumentHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
   const holdingHandler=createHoldingEvidenceHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
   const walletHandler=createWalletHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
+  const managedHandler=createManagedAirdropHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
   const testnetHandler=createTestnetHandler({identity:async()=>identity,database:async()=>DB,platformOptions});
   const {default:worker} = await import('../dist/server/index.js');
   const server = createServer(async (req,res) => {
@@ -48,6 +50,7 @@ export async function createLocalServer({databasePath = '.local/workspace.sqlite
       let response;
       if(new URL(request.url).pathname==='/api/public-campaigns')response=method==='GET'?Response.json(await readPublicCampaigns(DB),{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}}):Response.json({error:'Method not allowed'},{status:405,headers:{Allow:'GET'}});
       else if(new URL(request.url).pathname==='/api/wallets')response=await walletHandler(request);
+      else if(new URL(request.url).pathname==='/api/managed-airdrops')response=await managedHandler(request);
       else if(new URL(request.url).pathname==='/api/testnet')response=await testnetHandler(request);
       else if(new URL(request.url).pathname==='/api/holding-evidence')response=await holdingHandler(request);
       else if(new URL(request.url).pathname==='/api/company-document')response=await documentHandler(request);

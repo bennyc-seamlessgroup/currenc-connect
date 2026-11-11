@@ -39,7 +39,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     // Deployment-controlled, verified identity binding used once. There is no
     // first-user, company-owner or request-header route to platform ownership.
     if(bootstrapOwner?.email&&identity.user.emailVerified===true&&identity.user.email.trim().toLowerCase()===bootstrapOwner.email.trim().toLowerCase()&&identity.issuer===bootstrapOwner.issuer){
-      try{await DB.atomicChange(stmt("INSERT INTO cc_platform_admins (account_id,role,created_at) SELECT $1,'owner',$2 WHERE NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE role='owner') ON CONFLICT (account_id) DO NOTHING RETURNING account_id",[identity.accountId,at()]),[audit(identity.accountId,'Platform owner initialized','account',identity.accountId,'Deployment-authorized verified account')]);}
+      try{await DB.atomicChange(stmt("INSERT INTO cc_platform_admins (account_id,role,created_at) SELECT $1,'owner',$2 WHERE NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE role='owner') ON CONFLICT (account_id) DO NOTHING RETURNING account_id",[identity.accountId,at()]),[stmt(`INSERT INTO cc_internal_accounts (account_id,created_at) SELECT $1,$2 WHERE ${changed} ON CONFLICT (account_id) DO NOTHING RETURNING account_id`,[identity.accountId,at()]),audit(identity.accountId,'Platform owner initialized','account',identity.accountId,'Deployment-authorized verified account')]);}
       catch(error){if(error.code!=='23505')throw error;}
     }
   }
@@ -154,7 +154,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       requireValue(role==='owner','Only the platform owner can appoint administrators.',403);requireValue(cmd.accountId!==identity.accountId,'The platform owner cannot be changed.',403);requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);await accountActive(cmd.accountId);
       const guard=`EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=$2 AND role='owner') AND ${active('$2')}`;
       const change=cmd.grant===true?stmt(`INSERT INTO cc_platform_admins (account_id,role,granted_by,created_at) SELECT $1,'admin',$2,$3 WHERE ${guard} ON CONFLICT (account_id) DO NOTHING RETURNING account_id`,[cmd.accountId,identity.accountId,at()]):stmt(`DELETE FROM cc_platform_admins WHERE account_id=$1 AND role='admin' AND ${guard} RETURNING account_id`,[cmd.accountId,identity.accountId]);
-      checked(await DB.atomicChange(change,[audit(identity.accountId,cmd.grant?'Platform admin granted':'Platform admin removed','account',cmd.accountId,'Owner-authorized administrator access')]));
+      checked(await DB.atomicChange(change,[stmt(`INSERT INTO cc_internal_accounts (account_id,created_at) SELECT $1,$2 WHERE ${changed} ON CONFLICT (account_id) DO NOTHING RETURNING account_id`,[cmd.accountId,at()]),audit(identity.accountId,cmd.grant?'Platform admin granted':'Platform admin removed','account',cmd.accountId,'Owner-authorized administrator access')]));
     }else if(['platform-company-admin','platform-remove-company-member'].includes(cmd.type)){
       const memberId=cmd.memberId||(typeof cmd.memberEmail==='string'?(await one('SELECT id FROM cc_accounts WHERE email=$1',[cmd.memberEmail.trim().toLowerCase()]))?.id:null);
       requireValue(typeof memberId==='string'&&memberId!==identity.accountId,'Select another registered company member.',403);
