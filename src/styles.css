@@ -528,3 +528,5 @@ dialog::backdrop { background: #152c2c66; }
 .brand{font-weight:750;letter-spacing:-1.2px;color:#07532e}.brand-symbol{width:52px;height:40px}.brand-sub{font-size:10px;letter-spacing:3.6px;color:#07532e;margin-top:6px}.public-header .brand-symbol{width:54px;height:42px}@media(max-width:600px){.public-header .brand-symbol{width:44px;height:34px}.public-header .brand-sub{font-size:9px;letter-spacing:3px}}
 
 .evidence-approval[hidden]{display:none}.evidence-approval{margin:0;gap:20px}
+
+.action-scope .inline-notice{margin:0}.action-scope .form-hint{margin:16px 0 0}.account-actions{flex-wrap:wrap;max-width:420px;min-width:220px;row-gap:10px}

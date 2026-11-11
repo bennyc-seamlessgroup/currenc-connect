@@ -26,7 +26,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
   const checked=rows=>requireValue(rows.length,'The record or your permissions changed. Reload and try again.',409);
   async function accountActive(accountId){
     const row=await one('SELECT status,archived FROM cc_account_controls WHERE account_id=$1',[accountId]);
-    if(row?.archived===1)throw new PlatformError('Portal access has been removed. Contact the platform administrator.',403,'ACCOUNT_REMOVED');
+    if(row?.archived===1)throw new PlatformError('All portal access is disabled, including shareholder access. Contact the platform team.',403,'ACCOUNT_REMOVED');
     if(row?.status==='suspended')throw new PlatformError('This account is suspended. Contact the platform administrator.',403,'ACCOUNT_SUSPENDED');
   }
   async function acceptAccountInvitations(identity){
@@ -120,7 +120,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       const row=await one("SELECT email FROM cc_account_invitations WHERE id=$1 AND status='pending'",[cmd.invitationId]);requireValue(row,'Pending invitation unavailable.',409);
       checked(await DB.atomicChange(stmt(`UPDATE cc_account_invitations SET status='revoked' WHERE id=$1 AND status='pending' AND ${adminGuard('$2')} RETURNING id`,[cmd.invitationId,identity.accountId]),[audit(identity.accountId,'Account invitation revoked','account-invitation',cmd.invitationId,{email:row.email})]));
     }else if(['platform-remove-account','platform-restore-account'].includes(cmd.type)){
-      requireValue(cmd.accountId!==identity.accountId&&!await platformRole(cmd.accountId),'Remove platform access before removing this account. The platform owner and your own account are protected.',403);
+      requireValue(cmd.accountId!==identity.accountId&&!await platformRole(cmd.accountId),'Revoke the platform role before disabling all portal access for this account. The platform owner and your own account are protected.',403);
       requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a reason (3–1,000 characters).');
       await query("INSERT INTO cc_account_controls (account_id,status,updated_at) VALUES ($1,'active',$2) ON CONFLICT (account_id) DO NOTHING",[cmd.accountId,at()]);
       const remove=cmd.type==='platform-remove-account';
@@ -131,7 +131,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       requireValue(typeof cmd.shareholderRegistrations==='boolean','Invalid portal settings.');const announcement=typeof cmd.announcement==='string'?cmd.announcement.trim():'';requireValue(announcement.length<=300,'Portal notice must be 300 characters or fewer.');
       checked(await DB.atomicChange(stmt(`UPDATE cc_portal_settings SET company_applications=0,shareholder_registrations=$1,announcement=$2,revision=revision+1 WHERE id='portal' AND revision=$3 AND ${adminGuard('$4')} RETURNING id`,[cmd.shareholderRegistrations?1:0,announcement,cmd.revision,identity.accountId]),[audit(identity.accountId,'Portal settings updated','portal','portal',{shareholderRegistrations:cmd.shareholderRegistrations,announcement})]));
     }else if(cmd.type==='platform-account-status'){
-      requireValue(['active','suspended'].includes(cmd.status),'Invalid account status.');requireValue(cmd.accountId!==identity.accountId,'You cannot suspend your own account.',403);requireValue(!await platformRole(cmd.accountId),'Remove platform administrator access before suspending this account.',403);
+      requireValue(['active','suspended'].includes(cmd.status),'Invalid account status.');requireValue(cmd.accountId!==identity.accountId,'You cannot suspend your own account.',403);requireValue(!await platformRole(cmd.accountId),'Revoke the platform role before suspending all portal access for this account.',403);
       requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a reason (3–1,000 characters).');
       await query("INSERT INTO cc_account_controls (account_id,status,updated_at) VALUES ($1,'active',$2) ON CONFLICT (account_id) DO NOTHING",[cmd.accountId,at()]);
       checked(await DB.atomicChange(stmt(`UPDATE cc_account_controls SET status=$1,reason=$2,updated_by=$3,updated_at=$4,revision=revision+1 WHERE account_id=$5 AND revision=$6 AND archived=0 AND NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=$5) AND ${adminGuard('$3')} RETURNING account_id`,[cmd.status,reason,identity.accountId,at(),cmd.accountId,cmd.revision]),[audit(identity.accountId,'Account '+cmd.status,'account',cmd.accountId,reason)]));
