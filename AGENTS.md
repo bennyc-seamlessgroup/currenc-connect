@@ -4,6 +4,8 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11 最新：Accounts 全面存取操作合併為 Disable all portal access／Restore portal access，不再提供 Suspend／Resume。舊 status=suspended 帳戶以 Disabled 顯示並保持封鎖，不作資料遷移或自動解封；同一 Restore 命令可明確還原舊暫停或 archived 帳戶。舊 platform-account-status 僅作同一流程的相容別名，不再寫入新 suspended 狀態。公司自身的 Suspend／Resume 不受這項帳戶改動影響。
+- 平台帳戶搜尋支援登入電郵、帳戶顯示名，以及已完成模擬身份表格的姓名／填報電郵／國家地區。身份資料在 Manage access → Identity profile 收起顯示，標示 Completed (demo)／第三方 KYC 未接駁；不能當成真實 KYC。未完成表格的預設地區不納入搜尋，登入及權限仍綁定已驗證身份，不可改用填報電郵。只搜尋及投影明確 allowlist，不回傳原 profile JSON 或未知敏感欄位。DB.dialect 區分 Neon JSON 與 SQLite JSON 語法。Current／Disabled 切換保留查詢。92 項測試及桌面／390px 驗證通過，沒有更改正式帳戶／角色。
 - 2026-11-11 使用者要求不要把全部操作按鈕攤開。Accounts 每列只保留 Manage access，對話框列出股東、平台及所有公司角色；公司角色可在此編輯／移除。Suspend／Disable 收在 Account controls，Active 預設收起，停用／暫停帳戶預設展開以便還原。手機列表採簡潔雙欄，不需橫捲找按鈕。後端僅向授權平台人員回傳當頁帳戶的公司 ID／名稱／角色；沿用現有角色命令、stale-role 及稽核保護。89 項測試及桌面／390px 驗證通過，沒有更改任何正式帳戶權限。不要再把帳戶操作攤開在主列表。
 - 2026-11-11：已釐清帳戶／角色操作：Revoke platform role 只撤銷平台角色；Remove company access 只撤銷該公司成員權；Suspend／Disable all portal access 會封鎖股東及公司入口。Removed 在介面顯示為 Disabled，資料值 archived／removed 及命令保持相容。Restore／Resume portal access 會恢復保留的公司角色，確認視窗必須提醒僅恢復股東入口時先移除不應恢復的公司角色。同一帳戶可兼任股東、多公司成員及平台管理員。本輪只修改名稱、說明及確認排版，未更改任何正式帳戶／角色；不要把文案更新誤當已還原先前停用的第二帳戶。
 - 持股文件／Logo 版本 `ac5acfd` 已在 Vercel Ready（`2etzC4CdKZKzUtqNbT8HUJd54fMi`），87 項測試、建置及檢查通過。獨立 SQLite 合成身份／兩份測試 PDF 已完成上載、補件、批准、錢包銜接及鎖定 120 TEST 配額，沒有資金或轉帳；正式站只做匿名唯讀／登入入口及 390px 檢查，沒有寄 OTP 或改動正式資料。QA 服務已停止，主 localhost:5173 保留運行。

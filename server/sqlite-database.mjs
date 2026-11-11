@@ -15,7 +15,7 @@ export function createSqliteDatabase(path) {
     const statement=db.prepare(sql.replace(/\$(\d+)/g,(_,index)=>{args.push(values[Number(index)-1]);return '?';}));
     return statement.all(...args);
   };
-  return {db,close:()=>db.close(),query:async(sql,values=[])=>execute(sql,values),
+  return {dialect:'sqlite',db,close:()=>db.close(),query:async(sql,values=[])=>execute(sql,values),
     async atomicChange(change,effects=[]){
       db.exec('BEGIN IMMEDIATE');
       try{const rows=execute(change.sql,change.values);if(rows.length)for(const effect of effects)execute(effect.sql.replaceAll('EXISTS (SELECT 1 FROM changed)','1=1'),effect.values);db.exec('COMMIT');return rows;}

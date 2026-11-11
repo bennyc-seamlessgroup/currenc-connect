@@ -256,7 +256,7 @@ test('UI: suspended accounts clear all cached company data and provide only sign
  await platform.read(root);await staffCompany(DB,platform,member,'Private owned company');
  const h=harness({platform,actor:member});await h.start();await h.click('create');assert.equal(h.nodes['#dialog'].open,true);
  await platform.execute(root,{type:'platform-account-status',accountId:member.accountId,status:'suspended',revision:0,note:'Test suspension.'});await h.start();
- assert.match(h.nodes['#app'].innerHTML,/Account suspended/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Private owned company|New campaign/);assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
+ assert.match(h.nodes['#app'].innerHTML,/Portal access disabled/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Private owned company|New campaign/);assert.equal(h.nodes['#dialog'].innerHTML,'');assert.equal(h.nodes['#dialog'].open,false);
 });
 
 test('UI: campaign editor, reversible deletion and archive expose only stage-appropriate controls',async()=>{
@@ -313,4 +313,15 @@ test('UI: Manage access keeps account actions out of the list and revokes compan
  await h.click('account-manage-access',{id:member.accountId});assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Company &lt;img/);await h.click('platform-admin',{id:member.accountId});
  await h.submit('platform-action-form',{note:'Synthetic platform role revocation.'},{type:'platform-admin-access',values:JSON.stringify({accountId:member.accountId,grant:false})});
  const personal=await platform.read(member,{view:'shareholder'});assert.equal(personal.state.profile.name,'Personal identity retained');assert.equal(personal.access.platformRole,null);assert.equal(personal.access.organizations.length,1);assert.equal(personal.access.organizations[0].id,second.organizationId);
+});
+
+test('UI: searches identity fields, distinguishes login email and exposes only unified disabled recovery',async t=>{
+ const DB=createSqliteDatabase(':memory:');t.after(()=>DB.close());const root=platformActor('identity-root'),member=platformActor('identity-member');const platform=createPlatform(DB,{bootstrapOwner:{email:root.user.email,issuer:'test'}});await platform.read(root);await platform.read(member);
+ await platform.execute(member,{type:'kyc',name:'Profile <img src=x>',email:'self-reported@example.test',country:'Singapore',consent:true});
+ const h=harness({platform,actor:root});await h.start({view:'platform'});await h.click('nav',{page:'platform-accounts'});assert.match(h.nodes['#app'].innerHTML,/Search name, email or country/);
+ await h.submit('platform-search-form',{search:'Singapore'});assert.match(h.nodes['#app'].innerHTML,/Profile &lt;img src=x&gt;/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/<img src=x>/);assert.match(h.nodes['#app'].innerHTML,/identity-member@example.com/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/self-reported@example.test/);
+ await h.click('account-manage-access',{id:member.accountId});const dialog=h.nodes['#dialog'].innerHTML;assert.match(dialog,/Identity profile/);assert.match(dialog,/self-reported@example.test/);assert.match(dialog,/Completed \(demo\)/);assert.match(dialog,/Third-party KYC is not connected/);assert.doesNotMatch(dialog,/Suspend all|Resume portal|Verified KYC/);
+ await h.click('close');await DB.query("INSERT INTO cc_account_controls (account_id,status,archived,revision,updated_at) VALUES ($1,'suspended',0,3,$2)",[member.accountId,new Date().toISOString()]);
+ await h.click('platform-account-filter',{filter:'removed'});assert.match(h.nodes['#app'].innerHTML,/Profile &lt;img src=x&gt;/);assert.doesNotMatch(h.nodes['#app'].innerHTML,/Manage access for identity-root@example.com/);await h.click('account-manage-access',{id:member.accountId});assert.match(h.nodes['#dialog'].innerHTML,/Restore portal access/);assert.doesNotMatch(h.nodes['#dialog'].innerHTML,/Suspend all|Resume portal|data-action="platform-remove-account"/);
+ await h.click('platform-restore-account',{id:member.accountId});await h.submit('platform-action-form',{note:'Explicit synthetic legacy recovery.'},{type:'platform-restore-account',values:JSON.stringify({accountId:member.accountId,revision:3})});assert.equal((await platform.read(member,{view:'shareholder'})).state.profile.name,'Profile <img src=x>');
 });

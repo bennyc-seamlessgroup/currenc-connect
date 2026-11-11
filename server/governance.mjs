@@ -27,7 +27,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
   async function accountActive(accountId){
     const row=await one('SELECT status,archived FROM cc_account_controls WHERE account_id=$1',[accountId]);
     if(row?.archived===1)throw new PlatformError('All portal access is disabled, including shareholder access. Contact the platform team.',403,'ACCOUNT_REMOVED');
-    if(row?.status==='suspended')throw new PlatformError('This account is suspended. Contact the platform administrator.',403,'ACCOUNT_SUSPENDED');
+    if(row?.status==='suspended')throw new PlatformError('All portal access is disabled, including shareholder access. Contact the platform team.',403,'ACCOUNT_SUSPENDED');
   }
   async function acceptAccountInvitations(identity){
     if(identity.user.emailVerified!==true)return;
@@ -68,17 +68,26 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       audit(identity.accountId,'Company details updated','company',org.id,{name:company.name,ticker:company.ticker})
     ]));return {view:'platform',organizationId:org.id};
   }
+  const profileText=field=>DB.dialect==='postgres'?`COALESCE(a.profile::jsonb->>'${field}','')`:`COALESCE(json_extract(a.profile,'$.${field}'),'')`;
+  const profileComplete=DB.dialect==='postgres'?"(a.profile::jsonb->'kyc')='true'::jsonb":"json_type(a.profile,'$.kyc')='true'";
+  const disabledAccount="(COALESCE(c.archived,0)=1 OR c.status='suspended')";
+  function identityProfile(raw){
+    const profile=JSON.parse(raw),complete=profile.kyc===true;
+    const text=(key,max)=>complete&&typeof profile[key]==='string'?profile[key].slice(0,max):'';
+    return {name:text('name',60),email:text('email',120),country:text('country',80),complete,simulated:true};
+  }
   async function platformRead(identity,selection={}){
     const role=await requireAdmin(identity),page=Math.max(1,Math.min(10000,Math.trunc(Number(selection.page)||1))),offset=(page-1)*50;
-    const search=typeof selection.search==='string'?selection.search.slice(0,120).toLowerCase():'';
+    const search=typeof selection.search==='string'?selection.search.trim().slice(0,254).toLowerCase():'';
     const pattern='%'+search.replace(/[!%_]/g,c=>'!'+c)+'%';
     const companies=await query("SELECT o.id,o.company,o.owner_id,a.email AS owner_email,s.status,s.revision,s.visible,s.approval_mode,s.submitted_at,s.review_note FROM cc_organizations o JOIN cc_accounts a ON a.id=o.owner_id JOIN cc_company_status s ON s.organization_id=o.id WHERE LOWER(o.company) LIKE $1 ESCAPE '!' OR LOWER(a.email) LIKE $1 ESCAPE '!' ORDER BY CASE WHEN s.status='pending' THEN 0 ELSE 1 END,s.submitted_at DESC,o.created_at DESC,o.id LIMIT 51 OFFSET $2",[pattern,offset]);
     const accountFilter=selection.accountFilter==='removed'?'removed':'current';
-    const accounts=await query("SELECT a.id,a.email,a.name,a.created_at,CASE WHEN c.archived=1 THEN 'removed' ELSE COALESCE(c.status,'active') END AS status,COALESCE(c.revision,0) AS control_revision,p.role AS platform_role,(SELECT COUNT(*) FROM cc_memberships m WHERE m.account_id=a.id) AS companies FROM cc_accounts a LEFT JOIN cc_account_controls c ON c.account_id=a.id LEFT JOIN cc_platform_admins p ON p.account_id=a.id WHERE (LOWER(a.email) LIKE $1 ESCAPE '!' OR LOWER(a.name) LIKE $1 ESCAPE '!') AND COALESCE(c.archived,0)=$3 ORDER BY a.created_at DESC,a.id LIMIT 51 OFFSET $2",[pattern,offset,accountFilter==='removed'?1:0]);
+    const profileMatch=`${profileComplete} AND (${['name','email','country'].map(field=>`LOWER(${profileText(field)}) LIKE $1 ESCAPE '!'`).join(' OR ')})`;
+    const accounts=await query(`SELECT a.id,a.email,a.name,a.profile AS identity_data,a.created_at,CASE WHEN ${disabledAccount} THEN 'removed' ELSE 'active' END AS status,COALESCE(c.revision,0) AS control_revision,p.role AS platform_role,(SELECT COUNT(*) FROM cc_memberships m WHERE m.account_id=a.id) AS companies FROM cc_accounts a LEFT JOIN cc_account_controls c ON c.account_id=a.id LEFT JOIN cc_platform_admins p ON p.account_id=a.id WHERE (LOWER(a.email) LIKE $1 ESCAPE '!' OR LOWER(a.name) LIKE $1 ESCAPE '!' OR (${profileMatch})) AND CASE WHEN ${disabledAccount} THEN 1 ELSE 0 END=$3 ORDER BY a.created_at DESC,a.id LIMIT 51 OFFSET $2`,[pattern,offset,accountFilter==='removed'?1:0]);
     // Only the authorized, paginated account list receives company role metadata.
     const accountPage=accounts.slice(0,50),accountIds=accountPage.map(a=>a.id);
     const memberships=accountIds.length?await query(`SELECT m.account_id,m.organization_id,m.role,o.company FROM cc_memberships m JOIN cc_organizations o ON o.id=m.organization_id WHERE m.account_id IN (${accountIds.map((_,i)=>'$'+(i+1)).join(',')}) ORDER BY m.created_at,m.organization_id`,accountIds):[];
-    const accountRows=accountPage.map(a=>({...a,companyRoles:memberships.filter(m=>m.account_id===a.id).map(m=>{const company=JSON.parse(m.company);return {organizationId:m.organization_id,name:company.name,role:m.role};})}));
+    const accountRows=accountPage.map(({identity_data,...a})=>({...a,identityProfile:identityProfile(identity_data),companyRoles:memberships.filter(m=>m.account_id===a.id).map(m=>{const company=JSON.parse(m.company);return {organizationId:m.organization_id,name:company.name,role:m.role};})}));
     const events=await query('SELECT t.*,a.email AS actor FROM cc_platform_audit t JOIN cc_accounts a ON a.id=t.actor_id ORDER BY t.created_at DESC,t.id LIMIT 51 OFFSET $1',[offset]);
     const counts=await query('SELECT status,COUNT(*) AS count FROM cc_company_status GROUP BY status');
     let detail=null;
@@ -87,7 +96,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       const controls=await query('SELECT * FROM cc_campaign_controls WHERE organization_id=$1',[row.id]);
       detail={id:row.id,organizationRevision:row.revision,company:{...JSON.parse(row.company),legacyId:legacyCompany(row.id,row.owner_id)},ownerId:row.owner_id,...await application(identity,row.id,true),
         campaigns:JSON.parse(row.data).campaigns.map(c=>({id:c.id,legacyId:c.legacyId,name:c.name,status:c.status,...(controls.find(p=>p.campaign_id===c.id)||{visible:1,paused:0,revision:0})})),
-        members:await query("SELECT m.account_id AS id,m.role,a.email,a.name,CASE WHEN c.archived=1 THEN 'removed' ELSE COALESCE(c.status,'active') END AS account_status FROM cc_memberships m JOIN cc_accounts a ON a.id=m.account_id LEFT JOIN cc_account_controls c ON c.account_id=a.id WHERE m.organization_id=$1 ORDER BY m.created_at,m.account_id",[row.id]),
+        members:await query("SELECT m.account_id AS id,m.role,a.email,a.name,CASE WHEN c.archived=1 OR c.status='suspended' THEN 'removed' ELSE 'active' END AS account_status FROM cc_memberships m JOIN cc_accounts a ON a.id=m.account_id LEFT JOIN cc_account_controls c ON c.account_id=a.id WHERE m.organization_id=$1 ORDER BY m.created_at,m.account_id",[row.id]),
         invitations:await query("SELECT i.id,i.email,i.role,i.expires_at FROM cc_invitations i WHERE i.organization_id=$1 AND i.status='pending' AND i.expires_at>$2 ORDER BY i.created_at",[row.id,at()]),
         submissions:(await query('SELECT * FROM cc_company_submissions WHERE organization_id=$1 ORDER BY created_at DESC',[row.id])).map(s=>({...s,application:JSON.parse(s.application),documents:JSON.parse(s.documents)}))};
     }
@@ -113,6 +122,11 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
   }
   async function platformExecute(identity,cmd){
     const role=await requireAdmin(identity);
+    // Old clients use the same single disable/restore path; no new suspended state.
+    if(cmd.type==='platform-account-status'){
+      requireValue(['active','suspended'].includes(cmd.status),'Invalid account status.');
+      cmd={...cmd,type:cmd.status==='suspended'?'platform-remove-account':'platform-restore-account'};
+    }
     if(cmd.type==='platform-invite-account'){
       const email=typeof cmd.email==='string'?cmd.email.trim().toLowerCase():'';requireValue(email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),'Enter a valid email address.');
       requireValue(!await one('SELECT id FROM cc_accounts WHERE email=$1',[email]),'This account already exists. Manage or restore its portal access instead.',409);
@@ -128,17 +142,13 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
       requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a reason (3–1,000 characters).');
       await query("INSERT INTO cc_account_controls (account_id,status,updated_at) VALUES ($1,'active',$2) ON CONFLICT (account_id) DO NOTHING",[cmd.accountId,at()]);
       const remove=cmd.type==='platform-remove-account';
-      checked(await DB.atomicChange(stmt(`UPDATE cc_account_controls SET archived=$1,status='active',reason=$2,updated_by=$3,updated_at=$4,revision=revision+1 WHERE account_id=$5 AND revision=$6 AND archived=$7 AND NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=$5) AND ${adminGuard('$3')} RETURNING account_id`,[remove?1:0,reason,identity.accountId,at(),cmd.accountId,cmd.revision,remove?0:1]),[audit(identity.accountId,remove?'Portal access removed':'Portal access restored','account',cmd.accountId,{reason}),...(remove?[stmt(`UPDATE cc_invitations SET status='revoked' WHERE email=(SELECT email FROM cc_accounts WHERE id=$1) AND status='pending' AND ${changed} RETURNING id`,[cmd.accountId])]:[])]));
+      const stateGuard=remove?"archived=0 AND status='active'":"(archived=1 OR status='suspended')";
+      checked(await DB.atomicChange(stmt(`UPDATE cc_account_controls SET archived=$1,status='active',reason=$2,updated_by=$3,updated_at=$4,revision=revision+1 WHERE account_id=$5 AND revision=$6 AND ${stateGuard} AND NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=$5) AND ${adminGuard('$3')} RETURNING account_id`,[remove?1:0,reason,identity.accountId,at(),cmd.accountId,cmd.revision]),[audit(identity.accountId,remove?'Portal access disabled':'Portal access restored','account',cmd.accountId,{reason}),...(remove?[stmt(`UPDATE cc_invitations SET status='revoked' WHERE email=(SELECT email FROM cc_accounts WHERE id=$1) AND status='pending' AND ${changed} RETURNING id`,[cmd.accountId])]:[])]));
     }else if(cmd.type==='platform-save-company')return saveCompany(identity,cmd);
     else if(cmd.type==='platform-review-company')return review(identity,cmd);
     else if(cmd.type==='platform-settings'){
       requireValue(typeof cmd.shareholderRegistrations==='boolean','Invalid portal settings.');const announcement=typeof cmd.announcement==='string'?cmd.announcement.trim():'';requireValue(announcement.length<=300,'Portal notice must be 300 characters or fewer.');
       checked(await DB.atomicChange(stmt(`UPDATE cc_portal_settings SET company_applications=0,shareholder_registrations=$1,announcement=$2,revision=revision+1 WHERE id='portal' AND revision=$3 AND ${adminGuard('$4')} RETURNING id`,[cmd.shareholderRegistrations?1:0,announcement,cmd.revision,identity.accountId]),[audit(identity.accountId,'Portal settings updated','portal','portal',{shareholderRegistrations:cmd.shareholderRegistrations,announcement})]));
-    }else if(cmd.type==='platform-account-status'){
-      requireValue(['active','suspended'].includes(cmd.status),'Invalid account status.');requireValue(cmd.accountId!==identity.accountId,'You cannot suspend your own account.',403);requireValue(!await platformRole(cmd.accountId),'Revoke the platform role before suspending all portal access for this account.',403);
-      requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a reason (3–1,000 characters).');
-      await query("INSERT INTO cc_account_controls (account_id,status,updated_at) VALUES ($1,'active',$2) ON CONFLICT (account_id) DO NOTHING",[cmd.accountId,at()]);
-      checked(await DB.atomicChange(stmt(`UPDATE cc_account_controls SET status=$1,reason=$2,updated_by=$3,updated_at=$4,revision=revision+1 WHERE account_id=$5 AND revision=$6 AND archived=0 AND NOT EXISTS (SELECT 1 FROM cc_platform_admins WHERE account_id=$5) AND ${adminGuard('$3')} RETURNING account_id`,[cmd.status,reason,identity.accountId,at(),cmd.accountId,cmd.revision]),[audit(identity.accountId,'Account '+cmd.status,'account',cmd.accountId,reason)]));
     }else if(cmd.type==='platform-admin-access'){
       requireValue(typeof cmd.grant==='boolean','Select an administrator access action.');
       requireValue(role==='owner','Only the platform owner can appoint administrators.',403);requireValue(cmd.accountId!==identity.accountId,'The platform owner cannot be changed.',403);requireValue(await one('SELECT id FROM cc_accounts WHERE id=$1',[cmd.accountId]),'Account unavailable.',404);await accountActive(cmd.accountId);

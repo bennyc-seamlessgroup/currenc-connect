@@ -1,6 +1,6 @@
 # Current status
 
-Updated: 10 November 2026 (Hong Kong).
+Updated: 11 November 2026 (Hong Kong).
 
 - Primary app: **http://localhost:5173**, launched with `npm run dev` or `Start.command`. The current task leaves the local server running for review.
 - English interface throughout company and shareholder pages, forms, errors and exports. Chinese language selection is deferred.
@@ -129,3 +129,11 @@ Updated: 10 November 2026 (Hong Kong).
 - Added a minimal company role projection only to the authorized, paginated platform account list (company ID/name/role only). No new write permissions, auth model, migration or automatic account restoration. Role edits/removal reuse current server commands, stale-role guards and transactional audits. Existing account permissions, including the previously disabled second account, remain unchanged in production.
 - Mobile account rows use a compact layout so Manage access remains visible without horizontal scrolling. Native desktop/390px checks verified the clean list, multi-company role dialog, role editor, scoped removal confirmation, collapsed account controls and disabled-account recovery. No console errors or page-level horizontal overflow. Browser confirmations were only opened/cancelled using synthetic fixtures; no production roles were changed.
 - All 89 tests pass, including staff-only minimal role metadata, malicious-name escaping, editing/removing one company role while retaining another, revoking platform access while retaining the shareholder profile, and existing disabled-account recovery guards. Build/asset and whitespace checks pass.
+
+## Unified access controls and identity-profile search — 2026-11-11
+
+- Combined full-account actions into Disable all portal access / Restore portal access. Historical suspended records appear in Disabled and remain blocked without data migration or automatic reactivation. Explicit restore clears either historical suspended state or archived state with revision checks and the existing owner/self/platform-role guards. Old account-status commands normalize to the same disable/restore path; no new suspended states are written. Disable retains its pending-company-invitation revocation behavior. No production accounts or roles were modified.
+- Staff account search now includes completed identity-profile name, profile email and country alongside login email and authentication name. Added dialect-specific SQL JSON field extraction for Neon and SQLite; no whole-profile search. The API projects only the permitted name/email/country/completion fields, clearly marked simulated. Incomplete default country data, unknown profile fields, document identifiers and provider secrets are excluded. Login identity remains separate from the self-reported profile email.
+- Display names prefer the filled profile name. Identity profile details are collapsed inside Manage access, with explicit self-reported/demo wording. Accounts search has its own name/email/country placeholder and preserves its query across Current/Disabled. Company search remains separate. The main account list still uses one Manage access action per row.
+- All 92 tests pass: legacy suspension/restore preservation, compatibility commands, stale revisions, privacy allowlists, literal wildcards/injection strings, completed-profile matching, login/profile email distinction, and search preservation across account-state tabs. Build/asset and whitespace checks pass.
+- Native isolated desktop/390px verification passed for country and profile-email search, correct login email display, expanded profile details, one Disable action, legacy Disabled recovery and query retention across tabs. No console errors or page-level horizontal overflow. Synthetic profiles only; recovery confirmations were cancelled and no live OTP or production account update was performed.

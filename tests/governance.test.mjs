@@ -205,7 +205,7 @@ test('removing and restoring portal access preserves company membership, persona
  const cmd={type:'platform-remove-account',accountId:person.accountId,revision:0,note:'Synthetic portal removal test.'};await rejects(h.execute(owner,cmd),403);await rejects(h.execute(root,{...cmd,accountId:root.accountId}),403);await h.execute(root,cmd);
  await assert.rejects(h.read(person),e=>e.status===403&&e.code==='ACCOUNT_REMOVED');await assert.rejects(h.documents.download(person,'any'),e=>e.code==='ACCOUNT_REMOVED');
  assert.ok(!(await h.read(root,{view:'platform'})).platform.accounts.some(a=>a.id===person.accountId));const removed=(await h.read(root,{view:'platform',accountFilter:'removed'})).platform.accounts.find(a=>a.id===person.accountId);assert.equal(removed.status,'removed');assert.equal(removed.control_revision,1);
- await rejects(h.execute(root,{type:'platform-account-status',accountId:person.accountId,status:'active',revision:1,note:'Wrong restore method.'}),409);
+ await rejects(h.execute(root,{type:'platform-account-status',accountId:person.accountId,status:'active',revision:0,note:'Stale legacy restore alias.'}),409);
  await rejects(h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:0,note:'Stale restoration attempt.'}),409);await h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:1,note:'Restore synthetic portal access.'});
  const after=await h.read(person,{view:'company',organizationId:id});assert.equal(after.context.role,'viewer');assert.equal(after.state.profile.name,'Personal record retained');assert.deepEqual(after.state.treasury,before.state.treasury);assert.equal((await h.read(root,{view:'platform',accountFilter:'removed'})).platform.accounts.length,0);
 });
@@ -222,4 +222,33 @@ test('account role summaries are staff-only metadata scoped to the displayed acc
  const h=harness(t),id=await ready(h);await h.read(investor);await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:investor.user.email,role:'admin'});
  const view=await h.read(root,{view:'platform',search:investor.user.email}),rows=view.platform.accounts;assert.equal(rows.length,1);assert.deepEqual(rows[0].companyRoles,[{organizationId:id,name:'Test Company',role:'admin'}]);assert.deepEqual(Object.keys(rows[0].companyRoles[0]).sort(),['name','organizationId','role']);
  await rejects(h.read(investor,{view:'platform'}),403);const personal=await h.read(investor,{view:'shareholder'});assert.equal(personal.platform,null);assert.ok(!JSON.stringify(personal).includes('companyRoles'));
+});
+
+test('account search uses only allowed completed identity fields and keeps login identity separate',async t=>{
+ const h=harness(t);await h.read(root);await h.read(investor);await h.read(stranger);
+ await h.execute(investor,{type:'kyc',name:'Casey Identity',email:'profile-only@example.test',country:'Singapore',consent:true});
+ await h.execute(stranger,{type:'kyc',name:'Literal%_! Profile',email:'other-profile@example.test',country:'Taiwan',consent:true});
+ const row=(await h.DB.query('SELECT profile FROM cc_accounts WHERE id=$1',[investor.accountId]))[0];
+ await h.DB.query('UPDATE cc_accounts SET profile=$1 WHERE id=$2',[JSON.stringify({...JSON.parse(row.profile),passport:'PRIVATE-NOT-SEARCHABLE',providerSecret:'NOT-RETURNED'}),investor.accountId]);
+ for(const search of ['casey identity','PROFILE-ONLY@EXAMPLE.TEST','singapore',investor.user.email]){
+  const data=await h.read(root,{view:'platform',search}),accounts=data.platform.accounts;assert.equal(accounts.length,1);assert.equal(accounts[0].id,investor.accountId);assert.equal(accounts[0].email,investor.user.email);assert.equal(accounts[0].name,investor.user.name);
+  assert.deepEqual(accounts[0].identityProfile,{name:'Casey Identity',email:'profile-only@example.test',country:'Singapore',complete:true,simulated:true});assert.ok(!JSON.stringify(data.platform).includes('PRIVATE-NOT-SEARCHABLE'));assert.ok(!JSON.stringify(data.platform).includes('NOT-RETURNED'));assert.ok(!Object.hasOwn(accounts[0],'identity_data'));
+ }
+ for(const search of ['PRIVATE-NOT-SEARCHABLE','providerSecret',"' OR 1=1 --",'Hong Kong'])assert.equal((await h.read(root,{view:'platform',search})).platform.accounts.length,0);
+ const literal=(await h.read(root,{view:'platform',search:'%_!'})).platform.accounts;assert.deepEqual(literal.map(a=>a.id),[stranger.accountId]);
+ await h.execute(root,{type:'platform-remove-account',accountId:investor.accountId,revision:0,note:'Synthetic disabled profile search.'});
+ assert.equal((await h.read(root,{view:'platform',search:'casey'})).platform.accounts.length,0);assert.equal((await h.read(root,{view:'platform',search:'casey',accountFilter:'removed'})).platform.accounts[0].id,investor.accountId);
+ await rejects(h.read(stranger,{view:'platform',search:'casey'}),403);assert.equal((await h.read(stranger,{view:'shareholder'})).platform,null);
+});
+
+test('legacy suspended accounts share Disabled recovery without automatic reactivation or new suspended writes',async t=>{
+ const h=harness(t),id=await ready(h),person=actor('legacy-suspended');await h.read(person);await h.execute(root,{type:'platform-company-admin',organizationId:id,memberEmail:person.user.email,role:'viewer'});
+ await h.execute(person,{type:'kyc',name:'Legacy Profile',email:'legacy-profile@example.test',country:'Hong Kong',consent:true});
+ await h.DB.query("INSERT INTO cc_account_controls (account_id,status,archived,reason,revision,updated_at) VALUES ($1,'suspended',0,'Historical reason',7,$2)",[person.accountId,new Date().toISOString()]);
+ assert.ok(!(await h.read(root,{view:'platform'})).platform.accounts.some(a=>a.id===person.accountId));const legacy=(await h.read(root,{view:'platform',accountFilter:'removed',search:'Legacy Profile'})).platform.accounts[0];assert.equal(legacy.id,person.accountId);assert.equal(legacy.status,'removed');assert.equal(legacy.control_revision,7);
+ await assert.rejects(h.read(person),e=>e.status===403&&e.code==='ACCOUNT_SUSPENDED');const raw=(await h.DB.query('SELECT status,archived,revision FROM cc_account_controls WHERE account_id=$1',[person.accountId]))[0];assert.deepEqual({...raw},{status:'suspended',archived:0,revision:7});
+ await rejects(h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:6,note:'Stale restore.'}),409);
+ await h.execute(root,{type:'platform-restore-account',accountId:person.accountId,revision:7,note:'Explicitly restore legacy disabled account.'});assert.equal((await h.read(person,{view:'company',organizationId:id})).context.role,'viewer');assert.equal((await h.read(person)).state.profile.name,'Legacy Profile');
+ await h.execute(root,{type:'platform-account-status',accountId:person.accountId,status:'suspended',revision:8,note:'Legacy client alias uses unified disable.'});const disabled=(await h.DB.query('SELECT status,archived,revision FROM cc_account_controls WHERE account_id=$1',[person.accountId]))[0];assert.deepEqual({...disabled},{status:'active',archived:1,revision:9});await assert.rejects(h.read(person),e=>e.code==='ACCOUNT_REMOVED');
+ await h.execute(root,{type:'platform-account-status',accountId:person.accountId,status:'active',revision:9,note:'Legacy client alias uses unified restore.'});assert.equal((await h.read(person,{view:'company',organizationId:id})).context.role,'viewer');
 });

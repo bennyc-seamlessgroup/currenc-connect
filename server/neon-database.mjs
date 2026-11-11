@@ -12,7 +12,7 @@ const statements = new Map([
 ]);
 const databases = new Map();
 export function createNeonDatabase(query,transaction) {
-  return {query,transaction,async atomicChange(change,effects=[]) {
+  return {dialect:'postgres',query,transaction,async atomicChange(change,effects=[]) {
     const values=[...change.values];
     const ctes=effects.map((effect,index)=>{const offset=values.length;values.push(...effect.values);return `effect_${index} AS (${effect.sql.replace(/\$(\d+)/g,(_,n)=>'$'+(Number(n)+offset))})`;});
     return query(`WITH changed AS (${change.sql})${ctes.length?', '+ctes.join(', '):''} SELECT * FROM changed`,values);
