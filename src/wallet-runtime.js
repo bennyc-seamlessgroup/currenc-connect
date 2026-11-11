@@ -19,7 +19,7 @@ export function createWalletRuntime({browser=globalThis.window,registry=getWalle
   for(const [name,provider] of fallback)if(provider?.connect&&provider?.signMessage&&!wallets.some(w=>w.name.toLowerCase().includes(name)))list.push({id:'sol-'+name,name:name==='phantom'?'Phantom':'Solflare',provider});
   return list;
  }
- async function connect(id,chain){
+ async function connect(id,chain,options={}){
   let invalid=false,closed=false;const cleanups=[];
   const changed=()=>{invalid=true;};
   const release=()=>{closed=true;for(const cleanup of cleanups)try{cleanup();}catch{}};
@@ -40,14 +40,20 @@ export function createWalletRuntime({browser=globalThis.window,registry=getWalle
    return {address,chain,release,assertActive,async sign(message){await assertActive();const result=await p.signMessage(new TextEncoder().encode(message),'utf8');await assertActive();if(!result.signature||result.signature.length!==64)throw Error('The wallet returned an invalid signature.');return hex(result.signature);}};
   }
   const p=providers.get(id)?.provider;if(!p)throw Error('This wallet is no longer available.');
-  const chainId=chain==='BNB'?'0x38':'0x1',accounts=await p.request({method:'eth_requestAccounts'}),address=accounts?.[0];
+  const chainId=options.testnet?'0xaa36a7':chain==='BNB'?'0x38':'0x1',accounts=await p.request({method:'eth_requestAccounts'}),address=accounts?.[0];
   if(typeof address!=='string')throw Error('The wallet did not return an address.');
   if(Number(await p.request({method:'eth_chainId'}))!==Number(chainId))await p.request({method:'wallet_switchEthereumChain',params:[{chainId}]});
   if(p.on){for(const [name,handler] of [['accountsChanged',values=>{if(values?.[0]?.toLowerCase()!==address.toLowerCase())changed();}],['chainChanged',value=>{if(Number(value)!==Number(chainId))changed();}],['disconnect',changed]]){p.on(name,handler);cleanups.push(()=>p.removeListener?.(name,handler));}}
   const assertActive=async()=>{assertOpen();const [accounts,current]=await Promise.all([p.request({method:'eth_accounts'}),p.request({method:'eth_chainId'})]);assertOpen();if(accounts?.[0]?.toLowerCase()!==address.toLowerCase()||Number(current)!==Number(chainId))throw Error('The wallet account or network changed. Connect again.');};
   try{await assertActive();}catch(error){release();throw error;}
-  return {address,chain,release,assertActive,async sign(message){await assertActive();const signature=await p.request({method:'personal_sign',params:[hex(new TextEncoder().encode(message)),address]});await assertActive();return signature;}};
+  return {address,chain,release,assertActive,async sign(message){await assertActive();const signature=await p.request({method:'personal_sign',params:[hex(new TextEncoder().encode(message)),address]});await assertActive();return signature;},...(options.testnet?{async sendTestnet(transaction){
+   if(transaction.chainId!==11155111||transaction.from?.toLowerCase()!==address.toLowerCase()||transaction.value!=='0x0'||!/^0x[0-9a-f]+$/i.test(transaction.data||'')||transaction.data.length>60000||transaction.to&&!/^0x[0-9a-f]{40}$/i.test(transaction.to))throw Error('Invalid Sepolia transaction.');
+   await assertActive();
+   const hash=await p.request({method:'eth_sendTransaction',params:[{from:address,chainId,value:'0x0',data:transaction.data,...(transaction.to?{to:transaction.to}:{})}]});
+   if(!/^0x[0-9a-f]{64}$/i.test(hash||''))throw Error('The wallet did not return a transaction hash. Check your wallet activity before retrying.');
+   return hash;
+  }}:{})};
  }
- return {discover:chain=>discover(chain).map(({id,name})=>({id,name})),connect};
+ return {discover:chain=>discover(chain).map(({id,name})=>({id,name})),connect,connectTestnet:id=>connect(id,'ETH',{testnet:true})};
 }
 export const walletRuntime=createWalletRuntime();

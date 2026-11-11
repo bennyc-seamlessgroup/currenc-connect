@@ -16,7 +16,7 @@ export async function readPublicCampaigns(DB,{now=new Date()}={}) {
   const company=JSON.parse(row.company),data=JSON.parse(row.data);
   for(const c of data.campaigns||[]){
    const control=moderation.get(row.id+'\0'+c.id),claimDeadline=c.claimDeadline||c.deadline,registrationDeadline=c.registrationDeadline||c.deadline;
-   if(c.company!==row.id||!['open','locked','paused'].includes(c.status)||control?.visible===0||!/^\d{4}-\d{2}-\d{2}$/.test(claimDeadline||'')||claimDeadline<today)continue;
+   if(c.delivery==='sepolia'||c.company!==row.id||!['open','locked','paused'].includes(c.status)||control?.visible===0||!/^\d{4}-\d{2}-\d{2}$/.test(claimDeadline||'')||claimDeadline<today)continue;
    campaigns.push({
     id:c.id,name:c.name,description:c.description||'',token:c.token,
     company:{id:row.id,name:company.name,ticker:company.ticker,initials:company.initials,color:/^#[0-9a-f]{6}$/i.test(company.color||'')?company.color:'#39796f'},

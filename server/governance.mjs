@@ -185,6 +185,7 @@ export function createGovernance(DB,{now=()=>new Date(),bootstrapOwner}={}){
     }else if(cmd.type==='platform-campaign-control'){
       requireValue(['hide','show','pause','resume'].includes(cmd.action),'Invalid campaign action.');const org=await one('SELECT data FROM cc_organizations WHERE id=$1',[cmd.organizationId]);requireValue(org&&JSON.parse(org.data).campaigns.some(c=>c.id===cmd.campaignId),'Campaign unavailable.',404);requireValue(!['archived','deleted'].includes(JSON.parse(org.data).campaigns.find(c=>c.id===cmd.campaignId).status),'Archived and deleted campaigns are read-only.');
       const reason=typeof cmd.note==='string'?cmd.note.trim():'';requireValue(reason.length>=3&&reason.length<=1000,'Enter a moderation reason (3–1,000 characters).');
+      requireValue(cmd.action!=='show'||JSON.parse(org.data).campaigns.find(c=>c.id===cmd.campaignId).delivery!=='sepolia','Sepolia pilots remain private.');
       await query('INSERT INTO cc_campaign_controls (organization_id,campaign_id,updated_at) VALUES ($1,$2,$3) ON CONFLICT (organization_id,campaign_id) DO NOTHING',[cmd.organizationId,cmd.campaignId,at()]);
       const current=await one('SELECT * FROM cc_campaign_controls WHERE organization_id=$1 AND campaign_id=$2',[cmd.organizationId,cmd.campaignId]);
       const visible=['hide','show'].includes(cmd.action)?(cmd.action==='show'?1:0):current.visible,paused=['pause','resume'].includes(cmd.action)?(cmd.action==='pause'?1:0):current.paused;

@@ -8,6 +8,7 @@ import entry from '../api/workspace.js';
 import authEntry from '../api/auth.js';
 import documentEntry from '../api/company-document.js';
 import walletEntry from '../api/wallets.js';
+import testnetEntry from '../api/testnet.js';
 import {createPlatform} from '../server/platform.mjs';
 import publicEntry from '../api/public-campaigns.js';
 import {seedState} from '../lib/domain.ts';
@@ -46,7 +47,7 @@ test('Vercel build serves browser assets only and exports a native API function'
   assert.equal(config.buildCommand,'npm run build');
   assert.equal(JSON.parse(readFileSync('package.json','utf8')).engines.node,'22.x');
   assert.equal(typeof entry.fetch,'function');assert.equal(typeof authEntry.fetch,'function');
-  assert.equal(typeof documentEntry.fetch,'function');assert.equal(typeof walletEntry.fetch,'function');
+  assert.equal(typeof documentEntry.fetch,'function');assert.equal(typeof walletEntry.fetch,'function');assert.equal(typeof testnetEntry.fetch,'function');
   assert.equal(typeof publicEntry.fetch,'function');
   const files=readdirSync(config.outputDirectory).sort();
   assert.deepEqual(files,['app.js','favicon.svg','images','index.html','styles.css','wallet-runtime.js']);

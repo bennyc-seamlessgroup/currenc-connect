@@ -29,3 +29,17 @@ test('injected Solana wallets use raw UTF-8 message signing and reject account c
  const signer=testSigner('SOL'),events=new Map(),browser=new EventTarget(),provider={publicKey:{toString:()=>signer.address},on:(name,fn)=>events.set(name,fn),removeListener:name=>events.delete(name),async connect(){return{publicKey:this.publicKey};},async signMessage(bytes,mode){assert.equal(mode,'utf8');return{signature:Buffer.from((await signer.sign(new TextDecoder().decode(bytes))).slice(2),'hex')};}};browser.phantom={solana:provider};
  const runtime=createWalletRuntime({browser,registry:{get:()=>[]}}),connection=await runtime.connect(runtime.discover('SOL')[0].id,'SOL');assert.equal((await connection.sign('Verify control')).length,130);events.get('accountChanged')?.(null);await assert.rejects(connection.assertActive(),/changed/);connection.release();assert.equal(events.size,0);
 });
+test('testnet transactions are explicit, Sepolia-only, zero-value and bound to the connected wallet',async()=>{
+ const h=evm(),request=h.provider.request.bind(h.provider),hash='0x'+'a'.repeat(64);h.provider.request=async input=>input.method==='eth_sendTransaction'?(h.requests.push(input),hash):request(input);
+ const runtime=createWalletRuntime({browser:h.browser,registry:{get:()=>[]}}),id=runtime.discover('ETH')[0].id,ordinary=await runtime.connect(id,'ETH');assert.equal(ordinary.sendTestnet,undefined);ordinary.release();
+ const connection=await runtime.connectTestnet(id),tx={chainId:11155111,from:h.signer.address,to:'0x'+'1'.repeat(40),data:'0x1234',value:'0x0'};
+ assert.equal(h.requests.some(r=>r.method==='eth_sendTransaction'),false);
+ for(const patch of [{chainId:1},{chainId:56},{value:'0x1'},{from:testSigner().address},{to:'https://bad.example'},{data:'approve'}])await assert.rejects(connection.sendTestnet({...tx,...patch}),/Invalid Sepolia/);
+ assert.equal(await connection.sendTestnet(tx),hash);const sent=h.requests.find(r=>r.method==='eth_sendTransaction').params[0];assert.equal(sent.chainId,'0xaa36a7');assert.equal(sent.value,'0x0');assert.equal(sent.from,h.signer.address);
+ h.changeChain('0x1');await assert.rejects(connection.sendTestnet(tx),/changed/);connection.release();
+});
+test('a broadcast hash is retained for reconciliation if the wallet changes after submission',async()=>{
+ const h=evm(),request=h.provider.request.bind(h.provider),hash='0x'+'b'.repeat(64);h.provider.request=async input=>{if(input.method==='eth_sendTransaction'){h.changeAccount(testSigner().address);return hash;}return request(input);};
+ const runtime=createWalletRuntime({browser:h.browser,registry:{get:()=>[]}}),connection=await runtime.connectTestnet(runtime.discover('ETH')[0].id);
+ assert.equal(await connection.sendTestnet({chainId:11155111,from:h.signer.address,data:'0x1234',value:'0x0'}),hash);connection.release();
+});

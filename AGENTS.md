@@ -4,6 +4,11 @@
 
 ## 最新指示（2026-11-10，本機英文改版）
 
+- 2026-11-11 最新：新增獨立私密 Sepolia pilot，不改動普通模擬活動或餘額。Company → Campaigns → New testnet pilot 只供 Owner/Admin，為本人已驗證 ETH 錢包建立一份合成配額（1–1,000,000 整數、100% 解鎖、30 天領取），無須／不得假裝已完成真實 KYC 或持股檢查。一般 create/edit 不能轉為 Sepolia；匿名活動、他人股東目錄及平台 show 都不可公開 pilot。
+- `contracts/CurrencTestAirdrop.sol`／`scripts/compile-contracts.mjs`：固定 Solidity 0.8.38、OpenZeppelin 5.6.1，只有 chainId 11155111 可部署。六位小數新測試 ERC-20，Merkle 葉雙 hash 綁 index／錢包／配額，claim 只可領一次；不存姓名、電郵或真實持股。平台無簽署私鑰，部署及領取必須由使用者在錢包確認。只發 value=0 的 Sepolia 交易，gas 用測試 ETH。不要擅自按真實錢包的交易確認。
+- `/api/testnet`、`server/testnet.mjs`、`src/testnet-ui.js`、增量 migration `0006_testnet.sql` 保存私密 prepared intents／交易回執。核對 sender、chain、value、calldata、contract、hash 唯一性、canonical receipt、RewardClaimed 及 finalized block，完成後才更新 claimed／confirmed transaction，不扣模擬 treasury。部署準備及最終入帳以公司 revision 為主要原子變更，避免並發領取／編輯／封存覆蓋資料。交易 hash 遺失用 Add transaction hash，不自動重送。未準備部署或已全部領取的 pilot 可封存保留紀錄。
+- 部署錢包永久保留合約 pause/resume 權，即使 portal role 被移除；平台停權／公司暫停／活動控制只阻止新 portal preparation，不會改變鏈上狀態或阻止直接呼叫。移除 saved wallet 亦不能撤銷已提交鏈上的 Merkle 配額。只可明確稱私密測試網，不可誤稱已完成主網／SOL／BNB 發放、真實公司代幣接駁、分期或正式審計。預設公開 Sepolia RPC 已確認 chain ID；可用 server-only HTTPS SEPOLIA_RPC_URL，不能記錄／暴露憑證。
+- 125 項測試、建置／檢查及獨立 PostgreSQL 9 項相容驗證通過。原生隔離桌面／390px 已完成合成活動部署、100 TEST mint、finality 前不入帳、finality 後公司交易紀錄，原 1,234 模擬餘額不變，無橫溢或 console error。這是本機 EVM／注入 QA provider，不能冒稱真實 Sepolia 交易；使用者的真實 ETH 錢包簽名則已成功並重載保存。部署及後續實測看 STATUS。
 - 2026-11-11 最新錢包：`/api/wallets`／`server/wallets.mjs`／`src/wallet-ui.js`／延遲載入 `wallet-runtime.js`／增量 migration `0005_wallets.sql` 已實作真實 ETH／BNB EOA 及 Solana 訊息簽名驗證，可在 KYC／持股登記前獨立完成。五分鐘、單次 nonce 綁定已驗證帳戶、provider session ID、origin、鏈及地址；cookie 更新不影響同一 session，不能跨 session／帳戶重播。簽名／nonce／session binding 不可放入 workspace JSON、公開 API、localStorage 或一般稽核。驗證消耗、registry、不可覆寫 proof 及私密錢包 audit 必須原子保存。
 - 活動新接收地址只可選該帳戶仍有效的 verified wallet ID＋revision，不信任客戶端地址／鏈。移除錢包保留活動／配額／交易及 proof 歷史，作廢待簽 challenge；重新簽名恢復同一 ID。已領取後地址／鏈鎖定不變；有新 proof 的地址被撤銷時，後續模擬領取／批發須先重新驗證同地址。舊示範地址保留但不可自動標為已驗證；舊模擬發放相容不代表可作真實發放。wallet registry 只回傳本人資料，公司角色／平台角色不能管理他人錢包。停用帳戶同時作廢待簽 challenge。
 - 現階段只連接及簽署訊息，不發交易／approval／permit、不查餘額、不付 gas。KYC、券商 API 及代幣轉帳仍未接駁。支援 EIP-6963／EIP-1193、Solana Wallet Standard、注入式 Phantom／Solflare；未支援合約錢包 ERC1271、WalletConnect QR 或一般手機瀏覽器 deep link；手機需錢包 App 內建瀏覽器。不要誤稱已完成鏈上整合或真實 MetaMask／Phantom 彈窗驗收。

@@ -3,6 +3,9 @@
   "framework": null,
   "buildCommand": "npm run build",
   "outputDirectory": "dist/client",
+  "functions": {
+    "api/testnet.js": { "includeFiles": "dist/contracts/CurrencTestAirdrop.json" }
+  },
   "headers": [
     {
       "source": "/(.*)",

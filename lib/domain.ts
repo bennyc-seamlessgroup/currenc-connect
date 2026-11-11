@@ -5,6 +5,8 @@ export type Campaign = {
   mode: 'ratio' | 'pool'; ratio: number; budget: number; minimum: number; cap: number;
   release: number; chains: Chain[]; snapshotDate: string; deadline: string;
   distribution: 'claim' | 'push'; snapshotAt?: string;
+  delivery?: 'simulation' | 'sepolia';
+  testOnly?: boolean;
   registrationDeadline?: string; claimDeadline?: string; revision?: number; archivedAt?: string; deletedAt?: string;
 };
 export type Holder = {
@@ -14,10 +16,11 @@ export type Holder = {
   evidence?: {id:string;version:number};
   walletVerification?: {walletId:string;proofId:string;verifiedAt:string};
   walletVerified?: boolean;
+  testOnly?: boolean;
   chain?: Chain; wallet?: string; source: string; asOf: string;
 };
 export type Entry = { id: string; at: string; title: string; detail: string; kind: 'info' | 'success' | 'warning' };
-export type Transaction = { id: string; campaign: string; holder: string; chain: Chain; amount: number; wallet: string; at: string; status: 'simulated' };
+export type Transaction = { id: string; campaign: string; holder: string; chain: Chain; amount: number; wallet: string; at: string; status: 'simulated' | 'confirmed'; network?: 'sepolia'; transactionHash?: string; contract?: string; blockNumber?: string };
 export type State = {
   companies?: Company[];
   version: number; profile: { name: string; email: string; country: string; kyc: boolean };
@@ -83,9 +86,12 @@ function campaignSettings(input: Record<string, any>, companies: Company[], toda
   assert(input.mode === 'ratio' || input.mode === 'pool', 'Invalid allocation method');
   assert(input.distribution === 'claim' || input.distribution === 'push', 'Invalid distribution method');
   assert(Array.isArray(input.chains) && input.chains.length > 0 && input.chains.every((c: string) => ['ETH','SOL','BNB'].includes(c)), 'Select at least one supported network.');
+  const delivery=input.delivery||'simulation';
+  assert(['simulation','sepolia'].includes(delivery),'Select a supported delivery environment.');
+  if(delivery==='sepolia')assert(input.chains.length===1&&input.chains[0]==='ETH'&&input.distribution==='claim'&&Number(input.release)===100,'Sepolia campaigns use Ethereum, shareholder claims and 100% unlock.');
   const snapshotDate = dateValue(input.snapshotDate), registrationDeadline = dateValue(input.registrationDeadline || input.deadline), claimDeadline = dateValue(input.claimDeadline || input.deadline || registrationDeadline);
   assert(registrationDeadline >= snapshotDate && registrationDeadline >= today && claimDeadline >= registrationDeadline, 'Registration must end on or after the record date and today; claims must end on or after registration.');
-  return {company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
+  return {delivery:delivery as Campaign['delivery'],company:company.id,token:company.token,name:label(input.name,'Campaign name',70),description:label(input.description,'Description',400),mode:input.mode as Campaign['mode'],ratio:numeric(input.ratio,'Tokens per share',0.000001,1000000),budget:numeric(input.budget,'Budget',1,1000000000),minimum:numeric(input.minimum,'Minimum shares',1,10000000),cap:numeric(input.cap,'Token cap',0.000001,1000000000),release:numeric(input.release,'Unlock percentage',0,100),chains:[...new Set(input.chains)] as Chain[],snapshotDate,registrationDeadline,claimDeadline,deadline:claimDeadline,distribution:input.distribution as Campaign['distribution']};
 }
 export function applyCommand(current: State, raw: unknown, now = new Date(), actor?: {accountId:string;profile:State['profile'];walletVerification?:{walletId:string;proofId:string;verifiedAt:string;chain:Chain;address:string}}): State {
   assert(raw && typeof raw === 'object', 'Invalid command');
@@ -131,6 +137,7 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
     }
     case 'wallet': {
       const c = campaign(); const h = s.holders.find(h => own(h,c)); assert(h, 'Register holdings first.');
+      assert(c.delivery!=='sepolia'||!c.snapshotAt,'Sepolia receiving wallets are fixed when the snapshot is locked.');
       const verified = actor?.walletVerification;
       if(actor)assert(verified && verified.walletId === cmd.walletId, 'Connect and verify a wallet before choosing a receiving address.');
       const chain = verified?.chain || cmd.chain;
@@ -150,7 +157,7 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
       if(c.status === 'draft'){
         assert(!s.holders.some(h => h.campaign === c.id) && !s.transactions.some(t => t.campaign === c.id), 'A draft with registration or distribution records cannot change its rules.');
         assert(input.company === c.company, 'A campaign cannot move to another company.');
-        assert(Object.keys(input).every(k => ['company','name','description','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution'].includes(k)), 'Unsupported campaign setting.');
+        assert(Object.keys(input).every(k => ['company','name','description','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','delivery'].includes(k)), 'Unsupported campaign setting.');
         Object.assign(c, campaignSettings(input, companies, at.slice(0,10)));
       }else{
         const allowed = c.status === 'open' ? ['name','description','registrationDeadline','claimDeadline'] : ['description'];
@@ -188,12 +195,12 @@ export function applyCommand(current: State, raw: unknown, now = new Date(), act
       c.status = 'locked'; c.snapshotAt = at;
       log('Snapshot locked', `${c.name} · ${amounts.length} eligible shareholders · allocations fixed`); break;
     }
-    case 'pause': { const c = campaign(); assert(c.status === 'locked' || c.status === 'paused', 'Only locked campaigns can be paused or resumed.'); c.status = c.status === 'locked' ? 'paused' : 'locked'; log(c.status === 'paused' ? 'Distributions paused' : 'Distributions resumed', c.name, 'info'); break; }
-    case 'release': { const c = campaign(); assert(c.status === 'locked' || c.status === 'paused', 'Lock the snapshot first.'); const value = numeric(cmd.percent, 'Unlock percentage', c.release, 100); c.release = value; log('Unlock updated', `${c.name} · Total unlocked: ${value}%`); break; }
+    case 'pause': { const c = campaign(); assert(c.delivery!=='sepolia','Pause or resume the Sepolia contract from Testnet setup.'); assert(c.status === 'locked' || c.status === 'paused', 'Only locked campaigns can be paused or resumed.'); c.status = c.status === 'locked' ? 'paused' : 'locked'; log(c.status === 'paused' ? 'Distributions paused' : 'Distributions resumed', c.name, 'info'); break; }
+    case 'release': { const c = campaign(); assert(c.delivery!=='sepolia','This Sepolia pilot unlocks the full allocation.'); assert(c.status === 'locked' || c.status === 'paused', 'Lock the snapshot first.'); const value = numeric(cmd.percent, 'Unlock percentage', c.release, 100); c.release = value; log('Unlock updated', `${c.name} · Total unlocked: ${value}%`); break; }
     case 'fund': { assert(companies.some(c => c.id === cmd.company) && ['ETH','SOL','BNB'].includes(cmd.chain), 'Invalid company or network'); const amount = numeric(cmd.amount, 'Funding amount', 1, 100000000); s.treasury[cmd.company][cmd.chain as Chain] += amount; log('Test funds added', `${cmd.amount.toLocaleString()} ${companies.find(c => c.id === cmd.company)!.token} · ${CHAIN_NAMES[cmd.chain as Chain]}`); break; }
     case 'claim':
     case 'distribute': {
-      const c = campaign(); assert(c.status === 'locked', 'Lock the snapshot and ensure the campaign is not paused.'); beforeDeadline(c,true);
+      const c = campaign(); assert(c.delivery!=='sepolia','Use the Sepolia transaction flow for this campaign.'); assert(c.status === 'locked', 'Lock the snapshot and ensure the campaign is not paused.'); beforeDeadline(c,true);
       assert(cmd.type === 'claim' ? c.distribution === 'claim' : c.distribution === 'push', 'This action is not supported by the distribution method.');
       const rows = s.holders.filter(h => h.campaign === c.id && h.status === 'verified' && (cmd.type === 'distribute' || own(h,c)));
       const ready = rows.filter(h => claimable(c, h) > 0 && h.wallet && h.chain && c.chains.includes(h.chain));

@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {applyCommand,COMPANIES,claimable} from '../dist/server/domain.mjs';
 import {PlatformError,requireValue} from './errors.mjs';
 import {readVerifiedWallets,attachWalletControl,walletForBinding} from './wallets.mjs';
+import {testnetSummaries} from './testnet-state.mjs';
 import {createGovernance,validateCompanyInfo} from './governance.mjs';
 
 export {PlatformError} from './errors.mjs';
@@ -16,7 +17,7 @@ const label=(value,name,max=80)=>{requireValue(typeof value==='string'&&value.tr
 const roles=['admin','operator','viewer'];
 export const permissions=role=>({campaigns:['owner','admin','operator'].includes(role),treasury:['owner','admin'].includes(role),team:['owner','admin'].includes(role),lifecycle:['owner','admin'].includes(role),owner:role==='owner'});
 const commandRoles={'edit-campaign':['owner','admin','operator'],'delete-draft':['owner','admin'],'restore-draft':['owner','admin'],'archive-campaign':['owner','admin'],create:['owner','admin','operator'],open:['owner','admin','operator'],review:['owner','admin','operator'],snapshot:['owner','admin','operator'],pause:['owner','admin','operator'],release:['owner','admin','operator'],fund:['owner','admin'],distribute:['owner','admin']};
-const publicCampaign=c=>Object.fromEntries(['id','company','name','description','token','status','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','snapshotAt'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]));
+const publicCampaign=c=>Object.fromEntries(['id','company','name','description','token','status','mode','ratio','budget','minimum','cap','release','chains','snapshotDate','deadline','registrationDeadline','claimDeadline','distribution','snapshotAt','delivery','testOnly'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]));
 const projectHolder=(h,accountId)=>{const {accountId:owner,...safe}=h;return {...safe,self:owner===accountId};};
 const teamGuard=`EXISTS (SELECT 1 FROM cc_memberships actor WHERE actor.organization_id=$1 AND actor.account_id=$2 AND (actor.role='owner' OR (actor.role='admin' AND $3<>'admin'))) AND NOT EXISTS (SELECT 1 FROM cc_account_controls WHERE account_id=$2 AND (status='suspended' OR archived=1)) AND NOT EXISTS (SELECT 1 FROM cc_company_status WHERE organization_id=$1 AND status='suspended')`;
 
@@ -110,7 +111,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       for(const row of all) {
         const data=parse(row),mine=data.holders.filter(h=>h.accountId===identity.accountId);
         const moderation=c=>controls.find(p=>p.organization_id===row.id&&p.campaign_id===c.id)||{visible:1,paused:0};
-        const visible=data.campaigns.filter(c=>(row.approval_status==='approved'&&row.visible===1&&moderation(c).visible===1&&!['draft','closed','archived','deleted'].includes(c.status))||mine.some(h=>h.campaign===c.id));
+        const visible=data.campaigns.filter(c=>(row.approval_status==='approved'&&row.visible===1&&moderation(c).visible===1&&c.delivery!=='sepolia'&&!['draft','closed','archived','deleted'].includes(c.status))||mine.some(h=>h.campaign===c.id));
         if(!visible.length)continue;
         state.companies.push(JSON.parse(row.company));state.campaigns.push(...visible.map(c=>({...publicCampaign(c),platform:{companyStatus:row.approval_status,listed:row.visible===1,...moderation(c)}})));
         state.holders.push(...mine);
@@ -119,6 +120,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
       state.holders=(await attachWalletControl(DB,state.holders)).map(h=>projectHolder(h,identity.accountId));
       state.activity=JSON.parse(account.activity);
     }
+    if(state.campaigns.some(c=>c.delivery==='sepolia'))state.campaigns=await testnetSummaries(DB,state.campaigns);
     return {state,wallets:await readVerifiedWallets(DB,identity.accountId),revision,accountRevision:account.revision,context,team:teamData,companyApplication,platform:platformData,access:{onboarded:account.onboarded===1,organizations:memberships,invitations,platformRole,portal:{shareholderRegistrations:portal.shareholder_registrations===1,announcement:portal.announcement}}};
   }
   async function createOrganization(identity,cmd) {
@@ -230,6 +232,7 @@ export function createPlatform(DB,{now=()=>new Date(),bootstrapOwner}={}) {
         requireValue((await governance.settings()).shareholder_registrations===1,'New shareholder registrations are currently paused.',403);
       }
       if(cmd.type==='create')requireValue(cmd.input?.company===row.id,'Invalid company.',403);
+      if(['create','edit-campaign'].includes(cmd.type))requireValue(cmd.input?.delivery!=='sepolia','Create Sepolia pilots from Testnet pilot.',403);
       if(cmd.type==='fund')requireValue(cmd.company===row.id,'Invalid company.',403);
       if(cmd.campaignId)requireValue(current.campaigns.some(c=>c.id===cmd.campaignId&&c.company===row.id),'Campaign unavailable.',403);
       if(isShareholder)requireValue(current.campaigns.some(c=>c.id===cmd.campaignId&&c.status!=='draft'),'Campaign unavailable.',403);

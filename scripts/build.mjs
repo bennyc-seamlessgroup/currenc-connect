@@ -5,7 +5,7 @@ import {stripTypeScriptTypes} from 'node:module';
 const domain=stripTypeScriptTypes(await readFile('lib/domain.ts','utf8'));
 const chainLogos=Object.fromEntries(await Promise.all([['ETH','ethereum'],['SOL','solana'],['BNB','bnb']].map(async([chain,file])=>[chain,'data:image/svg+xml;base64,'+(await readFile(`src/assets/chains/${file}.svg`)).toString('base64')])));
 const brandSymbol=await readFile('src/assets/brand/symbol.svg','utf8');
-const app='const brandSymbol='+JSON.stringify(brandSymbol)+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8')+'\n'+await readFile('src/holding-ui.js','utf8')+'\n'+await readFile('src/wallet-ui.js','utf8');
+const app='const brandSymbol='+JSON.stringify(brandSymbol)+';\n'+'const chainLogoData='+JSON.stringify(chainLogos)+';\n'+(await readFile('src/app.js','utf8')).replace(/^import[^\n]+\n/,'')+'\n'+await readFile('src/governance-ui.js','utf8')+'\n'+await readFile('src/campaign-ui.js','utf8')+'\n'+await readFile('src/portal-ui.js','utf8')+'\n'+await readFile('src/landing-ui.js','utf8')+'\n'+await readFile('src/holding-ui.js','utf8')+'\n'+await readFile('src/wallet-ui.js','utf8')+'\n'+await readFile('src/testnet-ui.js','utf8');
 const walletRuntime=(await bundle({entryPoints:['src/wallet-runtime.js'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',minify:true})).outputFiles[0].text;
 const assets={
  '/':{type:'text/html; charset=utf-8',body:await readFile('src/index.html','utf8')},
@@ -25,6 +25,7 @@ for (const [path,asset] of Object.entries(assets)) {
 const worker=domain+'\nconst ASSETS='+JSON.stringify(assets)+';\n'+await readFile('src/worker.js','utf8');
 await writeFile('dist/server/index.js',worker);await cp('.openai/hosting.json','dist/.openai/hosting.json');
 await writeFile('dist/server/domain.mjs',domain);
+await import('./compile-contracts.mjs');
 console.log(`Built Currenc Connect Worker: ${(Buffer.byteLength(worker)/1024).toFixed(1)} KiB · 0 external dependencies`);
 console.log('Built browser assets: dist/client');
 // Offline export is optional; the primary app uses the local API and SQLite.

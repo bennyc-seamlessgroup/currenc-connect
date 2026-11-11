@@ -65,5 +65,5 @@ async function walletAction(action,data){
  }
  return false;
 }
-function walletError(error){return error?.code===4001||error?.code==='ACTION_REJECTED'?'Wallet request cancelled.':error?.code===4902?'This network is unavailable in the wallet. Choose another wallet or add the network in your wallet.':error?.message||'Unable to connect this wallet.';}
+function walletError(error){if(error?.code===-32002)return 'A wallet request is already open. Complete or cancel it in your wallet before retrying.';return error?.code===4001||error?.code==='ACTION_REJECTED'?'Wallet request cancelled.':error?.code===4902?'This network is unavailable in the wallet. Choose another wallet or add the network in your wallet.':error?.message||'Unable to connect this wallet.';}
 function walletChange(event){if(event.target.id==='connect-wallet-chain')walletStart(walletContext?.campaignId||null,event.target.value);}
